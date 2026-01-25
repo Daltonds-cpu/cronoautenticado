@@ -1,0 +1,102 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CRONO ESFERA</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://images.unsplash.com">
+    <link rel="preconnect" href="https://picsum.photos">
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #020205;
+        color: #fff;
+        font-family: 'Inter', sans-serif;
+        overflow: hidden;
+      }
+      .font-orbitron {
+        font-family: 'Orbitron', sans-serif;
+      }
+      ::-webkit-scrollbar {
+        width: 4px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #00e5ff;
+        border-radius: 10px;
+      }
+      
+      .glitch-text {
+        position: relative;
+        display: inline-block;
+      }
+      .glitch-text::before,
+      .glitch-text::after {
+        content: attr(data-text);
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0.8;
+      }
+      .glitch-text::before {
+        color: #0ff;
+        z-index: -1;
+        animation: glitch-1 2s infinite linear alternate-reverse;
+      }
+      .glitch-text::after {
+        color: #f0f;
+        z-index: -2;
+        animation: glitch-2 2s infinite linear alternate-reverse;
+      }
+      @keyframes glitch-1 {
+        0% { transform: translate(0); }
+        20% { transform: translate(-2px, 1px); }
+        40% { transform: translate(-2px, -1px); }
+        60% { transform: translate(2px, 1px); }
+        80% { transform: translate(2px, -1px); }
+        100% { transform: translate(0); }
+      }
+      @keyframes glitch-2 {
+        0% { transform: translate(0); }
+        20% { transform: translate(2px, -1px); }
+        40% { transform: translate(2px, 1px); }
+        60% { transform: translate(-2px, -1px); }
+        80% { transform: translate(-2px, 1px); }
+        100% { transform: translate(0); }
+      }
+      canvas {
+        background: #020205;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
+    "@react-three/fiber": "https://esm.sh/@react-three/fiber@^9.5.0",
+    "@react-three/drei": "https://esm.sh/@react-three/drei@^10.7.7",
+    "three": "https://esm.sh/three@^0.182.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "framer-motion": "https://esm.sh/framer-motion@^12.29.0",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "firebase/": "https://esm.sh/firebase@^12.8.0/"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

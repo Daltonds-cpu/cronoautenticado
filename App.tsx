@@ -1,0 +1,706 @@
+
+import React, { useState, useEffect, Suspense, useRef, useMemo } from 'react';
+import { Canvas } from '@react-three/fiber';
+import { GlobeView } from './components/Globe';
+import { SlotData, UserProfile, HistoryItem, Notification as NotificationType } from './types';
+import { GLOBE_RADIUS, MOCK_USERS } from './constants';
+import { Trophy, Camera, X, Clock, Heart, Bell, ChevronLeft, Loader2, Repeat, LogOut, Users, HelpCircle, MessageCircle, Maximize2, Zap, Target, ShieldCheck, Sparkles, Award } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { analyzePostImpact } from './services/geminiService';
+import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged, User } from './services/firebase';
+import * as THREE from 'three';
+
+const formatDuration = (ms: number): string => {
+  const seconds = Math.floor(ms / 1000);
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return `${h > 0 ? h + 'h ' : ''}${m}m ${s}s`;
+};
+
+const formatSeconds = (seconds: number): string => {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return `${h > 0 ? h + 'h ' : ''}${m}m ${s}s`;
+};
+
+const generateInitialSlots = (): SlotData[] => {
+  const slots: SlotData[] = [];
+  const baseIco = new THREE.IcosahedronGeometry(GLOBE_RADIUS, 2);
+  const positionAttribute = baseIco.getAttribute('position');
+  const vertexMap = new Map<string, THREE.Vector3>();
+
+  for (let i = 0; i < positionAttribute.count; i++) {
+    const v = new THREE.Vector3().fromBufferAttribute(positionAttribute, i);
+    const key = `${v.x.toFixed(2)},${v.y.toFixed(2)},${v.z.toFixed(2)}`;
+    if (!vertexMap.has(key)) vertexMap.set(key, v.clone());
+  }
+
+  const points = Array.from(vertexMap.values());
+  points.forEach((pos: THREE.Vector3, i: number) => {
+    const randomUser = MOCK_USERS[Math.floor(Math.random() * MOCK_USERS.length)];
+    slots.push({
+      id: i,
+      occupantName: randomUser.name,
+      occupantAvatar: randomUser.avatar,
+      title: "SETOR ATIVO",
+      imageUrl: `https://picsum.photos/seed/crono${i + 9000}/800/800`,
+      startTime: Date.now() - Math.floor(Math.random() * 8000000),
+      likes: Math.floor(Math.random() * 50),
+      position: [pos.x, pos.y, pos.z],
+      sides: (i % 7 === 0) ? 5 : 6
+    });
+  });
+  return slots;
+};
+
+const DynamicMedia: React.FC<{ src: string; className?: string }> = ({ src, className }) => {
+  const [frames, setFrames] = useState<string[]>([]);
+  const [currentFrame, setCurrentFrame] = useState<number>(0);
+
+  useEffect(() => {
+    if (src.startsWith('LOOP:')) {
+      try { 
+        const parsed = JSON.parse(src.replace('LOOP:', ''));
+        if (Array.isArray(parsed)) setFrames(parsed);
+      } 
+      catch (e) { setFrames([src]); }
+    } else { setFrames([src]); }
+  }, [src]);
+
+  useEffect(() => {
+    if (frames.length > 1) {
+      const interval = setInterval(() => setCurrentFrame((p) => (p + 1) % frames.length), 120);
+      return () => clearInterval(interval);
+    }
+  }, [frames]);
+
+  return <img src={frames[currentFrame] || ''} className={className} alt="Crono Media" />;
+};
+
+const App: React.FC = () => {
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [userHistory, setUserHistory] = useState<HistoryItem[]>([]);
+  const [slots, setSlots] = useState<SlotData[]>([]);
+  const [selectedSlotId, setSelectedSlotId] = useState<number | null>(null);
+  const [hoveredSlotId, setHoveredSlotId] = useState<number | null>(null);
+  const [currentTime, setCurrentTime] = useState<number>(Date.now());
+  const [isProfileOpen, setIsProfileOpen] = useState<boolean>(false);
+  const [isRankingOpen, setIsRankingOpen] = useState<boolean>(false);
+  const [isAboutOpen, setIsAboutOpen] = useState<boolean>(false);
+  const [isIntroOpen, setIsIntroOpen] = useState<boolean>(false);
+  const [notifications, setNotifications] = useState<NotificationType[]>([]);
+  const [isPosting, setIsPosting] = useState<boolean>(false);
+  const [postingStep, setPostingStep] = useState<'mode_select' | 'camera' | 'preview'>('mode_select');
+  const [captureMode, setCaptureMode] = useState<'photo' | 'gif'>('photo');
+  const [activeFilter, setActiveFilter] = useState<string>('none');
+  const [capturedMedia, setCapturedMedia] = useState<string | null>(null);
+  const [newTitle, setNewTitle] = useState<string>('');
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [recordingProgress, setRecordingProgress] = useState<number>(0);
+  const [isCameraLoading, setIsCameraLoading] = useState<boolean>(false);
+  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [visitCount, setVisitCount] = useState<number>(0);
+  const [introStep, setIntroStep] = useState<number>(0);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const requestRef = useRef<number>(0);
+  const framesBuffer = useRef<string[]>([]);
+
+  // Firebase Auth State Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user: User | null) => {
+      if (user) {
+        const profile: UserProfile = {
+          name: user.displayName || 'VIAJANTE DO TEMPO',
+          avatar: user.photoURL || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${user.uid}`,
+          maxTimeSeconds: 0,
+          totalLikes: 0,
+          likedPosts: []
+        };
+        setUserProfile(profile);
+        setIsLoggedIn(true);
+        const savedHistory = localStorage.getItem(`crono_history_${user.uid}`);
+        if (savedHistory) setUserHistory(JSON.parse(savedHistory));
+      } else {
+        setIsLoggedIn(false);
+        setUserProfile(null);
+      }
+    });
+
+    const savedVisits = localStorage.getItem('crono_visits');
+    const newCount = (parseInt(savedVisits || '0', 10)) + 1;
+    localStorage.setItem('crono_visits', newCount.toString());
+    setVisitCount(newCount);
+
+    const introSeen = localStorage.getItem('crono_intro_seen');
+    if (!introSeen) setIsIntroOpen(true);
+
+    setSlots(generateInitialSlots());
+    const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
+    
+    return () => {
+      unsubscribe();
+      clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isLoggedIn || !userProfile) return;
+    const organicLikeInterval = setInterval(() => {
+      const userSlots = slots.filter(s => s.occupantName === userProfile.name);
+      if (userSlots.length > 0 && Math.random() > 0.8) {
+        const randomSlot = userSlots[Math.floor(Math.random() * userSlots.length)];
+        handleLike(randomSlot.id, true);
+      }
+    }, 15000);
+    return () => clearInterval(organicLikeInterval);
+  }, [isLoggedIn, userProfile, slots]);
+
+  useEffect(() => {
+    if (postingStep === 'camera' && stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(e => console.error("Camera error:", e));
+    }
+  }, [postingStep, stream]);
+
+  const handleCloseIntro = () => {
+    localStorage.setItem('crono_intro_seen', 'true');
+    setIsIntroOpen(false);
+  };
+
+  const addNotification = (message: string) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setNotifications((prev) => [...prev, { id, message, timestamp: Date.now() }]);
+    setTimeout(() => setNotifications((p) => p.filter((n) => n.id !== id)), 6000);
+  };
+
+  const handleGoogleLogin = async () => {
+    setIsLoggingIn(true);
+    try {
+      await signInWithPopup(auth, googleProvider);
+      addNotification("Conexão estabelecida via Google.");
+    } catch (error: any) {
+      console.error("Erro no login:", error);
+      addNotification("Falha na sincronização.");
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setIsLoggedIn(false);
+      setUserProfile(null);
+      setIsProfileOpen(false);
+      setIsRankingOpen(false);
+      setSelectedSlotId(null);
+      addNotification("Conexão encerrada.");
+    } catch (error) {
+      console.error("Erro no logout:", error);
+    }
+  };
+
+  const handleWhatsAppInvite = () => {
+    const text = encodeURIComponent("Reivindique seu espaço no tempo na Crono Esfera! " + window.location.href);
+    window.open(`https://wa.me/?text=${text}`, '_blank');
+  };
+
+  const handleLike = (id: number, isSimulated: boolean = false) => {
+    const slot = slots.find((s) => s.id === id);
+    if (!slot) return;
+
+    if (!isSimulated && userProfile) {
+      const postKey = `${slot.id}-${slot.startTime}`;
+      if (userProfile.likedPosts?.includes(postKey)) {
+        addNotification("Setor já reconhecido.");
+        return;
+      }
+    }
+
+    setSlots((prev) => prev.map((s) => s.id === id ? { ...s, likes: s.likes + 1 } : s));
+
+    if (userProfile && slot.occupantName === userProfile.name) {
+      const updatedProfile: UserProfile = { 
+        ...userProfile, 
+        totalLikes: userProfile.totalLikes + 1,
+        likedPosts: isSimulated ? userProfile.likedPosts : [...(userProfile.likedPosts || []), `${slot.id}-${slot.startTime}`]
+      };
+      setUserProfile(updatedProfile);
+      if (!isSimulated) addNotification("Seu legado ganha força.");
+    } else if (userProfile && !isSimulated) {
+      const updatedProfile: UserProfile = { 
+        ...userProfile, 
+        likedPosts: [...(userProfile.likedPosts || []), `${slot.id}-${slot.startTime}`] 
+      };
+      setUserProfile(updatedProfile);
+      addNotification("Reconhecimento enviado.");
+    }
+  };
+
+  const startCamera = async () => {
+    setIsCameraLoading(true);
+    try {
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
+      const newStream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'user', width: 480, height: 480 }, 
+        audio: false 
+      });
+      setStream(newStream);
+      setPostingStep('camera');
+    } catch (err) { 
+      addNotification("Hardware visual bloqueado."); 
+      console.error(err);
+    } finally { 
+      setIsCameraLoading(false); 
+    }
+  };
+
+  const stopCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop());
+    }
+    setStream(null);
+    cancelAnimationFrame(requestRef.current);
+  };
+
+  const processFrame = () => {
+    if (!videoRef.current || !canvasRef.current || postingStep !== 'camera') return;
+    const ctx = canvasRef.current.getContext('2d');
+    if (!ctx) return;
+    
+    const { width, height } = canvasRef.current;
+    ctx.filter = 'none';
+    if (activeFilter === 'noir') ctx.filter = 'grayscale(100%) contrast(1.3)';
+    if (activeFilter === 'neon') ctx.filter = 'brightness(1.4) saturate(2) contrast(1.1)';
+    if (activeFilter === 'invert') ctx.filter = 'invert(100%)';
+    
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.translate(-width, 0);
+    ctx.drawImage(videoRef.current, 0, 0, width, height);
+    ctx.restore();
+    
+    requestRef.current = requestAnimationFrame(processFrame);
+  };
+
+  useEffect(() => { 
+    if (postingStep === 'camera') {
+      processFrame(); 
+    }
+    return () => cancelAnimationFrame(requestRef.current);
+  }, [postingStep, activeFilter, stream]);
+
+  const handleCapture = () => {
+    if (!canvasRef.current) return;
+    if (captureMode === 'photo') {
+      setCapturedMedia(canvasRef.current.toDataURL('image/jpeg', 0.8));
+      stopCamera(); 
+      setPostingStep('preview');
+    } else {
+      setIsRecording(true);
+      setRecordingProgress(0);
+      framesBuffer.current = [];
+      const interval = setInterval(() => {
+        if (framesBuffer.current.length >= 15) {
+          clearInterval(interval); 
+          setIsRecording(false);
+          setCapturedMedia(`LOOP:${JSON.stringify(framesBuffer.current)}`);
+          stopCamera(); 
+          setPostingStep('preview');
+        } else {
+          if (canvasRef.current) {
+            framesBuffer.current.push(canvasRef.current.toDataURL('image/jpeg', 0.4));
+            setRecordingProgress((framesBuffer.current.length / 15) * 100);
+          }
+        }
+      }, 150);
+    }
+  };
+
+  const handleFinalPost = async () => {
+    if (!newTitle || !capturedMedia || selectedSlotId === null || !userProfile || !auth.currentUser) return;
+    setIsAnalyzing(true);
+    const now = Date.now();
+    const aiFeedbackPromise = analyzePostImpact(newTitle, userProfile.name);
+
+    const previousSlot = slots.find(s => s.id === selectedSlotId);
+    if (previousSlot && previousSlot.occupantName === userProfile.name) {
+      const durationSec = Math.floor((now - previousSlot.startTime) / 1000);
+      const newHistoryItem: HistoryItem = {
+        id: `${previousSlot.id}-${previousSlot.startTime}`,
+        imageUrl: previousSlot.imageUrl,
+        title: previousSlot.title,
+        finalDurationSeconds: durationSec,
+        timestamp: now
+      };
+      
+      setUserHistory((prev) => {
+        const updatedHistory = [newHistoryItem, ...prev];
+        localStorage.setItem(`crono_history_${auth.currentUser?.uid}`, JSON.stringify(updatedHistory));
+        return updatedHistory;
+      });
+    }
+    
+    setSlots((prev) => prev.map((s) => s.id === selectedSlotId ? { 
+      ...s, occupantName: userProfile.name, occupantAvatar: userProfile.avatar, 
+      title: newTitle.toUpperCase(), startTime: now, imageUrl: capturedMedia, likes: 0 
+    } : s));
+    
+    setIsPosting(false); 
+    setPostingStep('mode_select'); 
+    setCapturedMedia(null); 
+    setNewTitle('');
+    setSelectedSlotId(null);
+    
+    const aiComment = await aiFeedbackPromise;
+    setIsAnalyzing(false);
+    addNotification(`Setor #${selectedSlotId} conquistado.`);
+    setTimeout(() => addNotification(`IA: "${aiComment}"`), 1000);
+  };
+
+  const leaderboard = useMemo(() => [...slots].sort((a, b) => a.startTime - b.startTime).slice(0, 10), [slots]);
+  const currentSlot = useMemo(() => slots.find((s) => s.id === selectedSlotId), [slots, selectedSlotId]);
+  const topHistory = useMemo(() => {
+    return [...userHistory]
+      .sort((a, b) => b.finalDurationSeconds - a.finalDurationSeconds)
+      .slice(0, 5);
+  }, [userHistory]);
+
+  const introSteps = [
+    { title: "BEM-VINDO À CRONO ESFERA", desc: "Uma arena global onde a visibilidade é o único recurso que importa.", icon: <Clock className="text-cyan-400" size={40} /> },
+    { title: "O TEMPO É SEU PODER", desc: "Cada setor é disputado em tempo real. Quanto mais tempo você dominar, maior será seu legado.", icon: <Zap className="text-yellow-400" size={40} /> },
+    { title: "REIVINDIQUE O ESPAÇO", desc: "Use sua câmera para registrar sua presença e expulsar o ocupante atual.", icon: <Target className="text-red-400" size={40} /> },
+    { title: "ESTEJA PRONTO", desc: "Sua imagem ficará exposta para o mundo até que alguém seja mais rápido que você.", icon: <ShieldCheck className="text-green-400" size={40} /> }
+  ];
+
+  return (
+    <div className="relative w-full h-screen overflow-hidden bg-[#020205] text-white font-inter">
+      
+      {/* Overlay de Introdução */}
+      <AnimatePresence>
+        {isIntroOpen && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[10000] bg-black/95 flex items-center justify-center p-6 backdrop-blur-xl">
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="w-full max-w-md bg-zinc-900 border border-cyan-500/20 rounded-[2.5rem] p-10 text-center">
+              <div className="mb-8 flex justify-center">{introSteps[introStep].icon}</div>
+              <h2 className="text-2xl font-orbitron font-black uppercase mb-4 tracking-tighter italic">{introSteps[introStep].title}</h2>
+              <p className="text-zinc-400 text-sm leading-relaxed mb-10 h-16">{introSteps[introStep].desc}</p>
+              <div className="flex gap-2 justify-center mb-10">
+                {introSteps.map((_, i) => (
+                  <div key={i} className={`h-1 w-8 rounded-full transition-all ${i === introStep ? 'bg-cyan-400' : 'bg-white/10'}`} />
+                ))}
+              </div>
+              <button onClick={() => introStep < introSteps.length - 1 ? setIntroStep(introStep + 1) : handleCloseIntro()} className="w-full py-5 bg-cyan-500 text-black font-orbitron font-black rounded-2xl text-xs uppercase tracking-[0.2em] shadow-lg">
+                {introStep < introSteps.length - 1 ? "PRÓXIMO" : "SINCRONIZAR"}
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Notificações */}
+      <div className="fixed top-20 right-4 z-[5000] flex flex-col gap-2 pointer-events-none w-full max-w-[280px]">
+        <AnimatePresence>
+          {notifications.map((n) => (
+            <motion.div key={n.id} initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 50, opacity: 0 }} className="pointer-events-auto bg-zinc-900/90 backdrop-blur-xl border border-white/10 p-3 rounded-xl flex gap-3 items-center shadow-2xl">
+              <div className="p-1.5 bg-cyan-500/20 text-cyan-400 rounded-lg"><Bell size={14} /></div>
+              <p className="text-[10px] font-bold uppercase tracking-wider">{n.message}</p>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
+      {/* Globo 3D */}
+      <div className="absolute inset-0 z-0">
+        <Canvas camera={{ position: [0, 0, 22], fov: 40 }} dpr={[1, 2]}>
+          <Suspense fallback={null}>
+            <GlobeView 
+              slots={slots} 
+              onSlotClick={(id) => isLoggedIn && setSelectedSlotId(id)} 
+              onHover={(id) => setHoveredSlotId(id)} 
+              selectedSlotId={selectedSlotId} 
+              hoveredSlotId={hoveredSlotId} 
+            />
+          </Suspense>
+        </Canvas>
+      </div>
+
+      {/* Interface Cabeçalho */}
+      <header className="absolute top-0 left-0 w-full p-4 md:p-8 flex flex-col sm:flex-row justify-between items-center sm:items-start gap-4 z-[100] pointer-events-none">
+        <div className="pointer-events-auto flex items-center gap-4">
+          <div className="text-center sm:text-left">
+            <h1 className="text-lg md:text-2xl font-orbitron font-black italic tracking-tighter flex items-center gap-2">
+              <Clock className="text-cyan-400" size={24} /> <span>CRONO</span> <span className="text-cyan-400">ESFERA</span>
+            </h1>
+            <p className="text-[8px] font-orbitron text-cyan-500/50 tracking-[0.6em] mt-1 uppercase">Malha Ativa</p>
+          </div>
+          <button 
+            onClick={() => setIsAboutOpen(true)} 
+            className="p-2 bg-white/5 border border-white/10 rounded-full hover:text-cyan-400 transition-all pointer-events-auto shadow-xl"
+          >
+            <HelpCircle size={18} />
+          </button>
+        </div>
+
+        {isLoggedIn && userProfile && (
+          <div className="flex flex-row sm:flex-col items-center sm:items-end gap-3 pointer-events-auto">
+            <button 
+              onClick={() => setIsProfileOpen(true)} 
+              className="bg-zinc-900/60 backdrop-blur-xl border border-white/10 p-1.5 pr-4 rounded-full flex items-center gap-3 hover:bg-white/10 transition-all shadow-xl"
+            >
+              <img src={userProfile.avatar} className="w-8 h-8 rounded-full border border-cyan-500" alt="Avatar" />
+              <span className="text-[10px] font-black font-orbitron text-cyan-400 uppercase tracking-widest truncate max-w-[120px]">{userProfile.name}</span>
+            </button>
+            <button 
+              onClick={() => setIsRankingOpen(true)} 
+              className="bg-cyan-500/10 border border-cyan-500/30 px-5 py-2 rounded-full text-cyan-400 font-orbitron font-black text-[9px] flex items-center gap-2 hover:bg-cyan-500/20 transition-all shadow-md"
+            >
+              <Trophy size={14} /> <span>LEADERBOARD</span>
+            </button>
+          </div>
+        )}
+      </header>
+
+      {/* Compartilhamento WhatsApp */}
+      {isLoggedIn && (
+        <div className="fixed bottom-8 right-8 z-[1000]">
+          <motion.button 
+            whileHover={{ scale: 1.1 }} 
+            whileTap={{ scale: 0.9 }} 
+            onClick={handleWhatsAppInvite} 
+            className="w-14 h-14 bg-[#25D366] text-white rounded-2xl flex items-center justify-center shadow-2xl border-2 border-white/20 hover:brightness-110 transition-all cursor-pointer"
+          >
+            <MessageCircle size={28} />
+          </motion.button>
+        </div>
+      )}
+
+      {/* Dicas da UI */}
+      {isLoggedIn && !selectedSlotId && !isPosting && (
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="fixed bottom-24 sm:bottom-12 left-0 right-0 z-[50] pointer-events-none flex flex-col items-center px-6">
+          <p className="font-orbitron text-[10px] font-bold text-cyan-400 tracking-[0.5em] uppercase text-center drop-shadow-xl">SELECIONE UM SETOR NA ESFERA</p>
+        </motion.div>
+      )}
+
+      {/* Modais */}
+      <AnimatePresence>
+        {isRankingOpen && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
+            <div onClick={() => setIsRankingOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-xl" />
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="relative w-full max-w-lg bg-zinc-950 border border-white/10 rounded-[2rem] p-8 shadow-2xl max-h-[80vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-8">
+                <h2 className="text-xl font-orbitron font-black text-white italic uppercase flex items-center gap-4"><Trophy className="text-yellow-500" size={24} /> LEADERBOARD</h2>
+                <button onClick={() => setIsRankingOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
+              </div>
+              <div className="space-y-4">
+                {leaderboard.map((slot, idx) => (
+                  <div key={slot.id} className="bg-white/5 border border-white/5 p-4 rounded-2xl flex items-center gap-4">
+                    <span className="text-xl font-orbitron font-black text-white/20 w-8 text-center">#{idx + 1}</span>
+                    <img src={slot.occupantAvatar} className="w-10 h-10 rounded-full border border-white/10" alt="Avatar" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-orbitron font-bold text-cyan-400 truncate uppercase">{slot.occupantName}</p>
+                      <p className="text-[10px] text-zinc-500 truncate">{slot.title}</p>
+                    </div>
+                    <div className="text-right shrink-0 ml-2"><p className="text-[10px] font-orbitron font-bold">{formatDuration(currentTime - slot.startTime)}</p></div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {isProfileOpen && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
+            <div onClick={() => setIsProfileOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-xl" />
+            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="relative w-full max-w-lg bg-zinc-950 border border-white/10 rounded-[2rem] p-8 md:p-10 shadow-2xl overflow-y-auto max-h-[90vh]">
+              <button onClick={() => setIsProfileOpen(false)} className="absolute top-6 right-6 p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
+              <div className="text-center mb-8">
+                <img src={userProfile?.avatar} className="w-24 h-24 rounded-full border-2 border-cyan-500 mx-auto mb-4" alt="Avatar" />
+                <h3 className="text-2xl font-orbitron font-black uppercase mb-6 tracking-tight">{userProfile?.name}</h3>
+                <div className="flex justify-center gap-8">
+                  <div className="text-center">
+                    <p className="text-[10px] font-orbitron text-zinc-500 uppercase tracking-widest mb-1">Curtidas Recebidas</p>
+                    <div className="flex items-center gap-2 justify-center text-red-500"><Heart size={16} className="fill-current" /><span className="text-2xl font-orbitron font-black">{userProfile?.totalLikes || 0}</span></div>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] font-orbitron text-zinc-500 uppercase tracking-widest mb-1">Setores Ativos</p>
+                    <div className="flex items-center gap-2 justify-center text-cyan-400"><Target size={16} /><span className="text-2xl font-orbitron font-black">{slots.filter(s => s.occupantName === userProfile?.name).length}</span></div>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-6">
+                <div>
+                  <h4 className="text-[11px] font-orbitron font-black text-zinc-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2"><Award size={14} className="text-yellow-500" /> TOP 5 LEGADOS</h4>
+                  <div className="space-y-3">
+                    {topHistory.length > 0 ? topHistory.map((item, idx) => (
+                      <div key={item.id} className="bg-white/5 border border-white/5 rounded-2xl p-3 flex items-center gap-4 group hover:bg-white/10 transition-all">
+                        <div className="w-14 h-14 rounded-xl overflow-hidden border border-white/10 shrink-0"><DynamicMedia src={item.imageUrl} className="w-full h-full object-cover" /></div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] font-orbitron font-black text-cyan-400 uppercase truncate mb-1">{item.title}</p>
+                          <div className="flex items-center gap-2 text-zinc-500"><Clock size={12} /><span className="text-[10px] font-medium">{formatSeconds(item.finalDurationSeconds)}</span></div>
+                        </div>
+                        <div className="text-zinc-700 font-orbitron font-black text-lg">#{idx + 1}</div>
+                      </div>
+                    )) : (
+                      <div className="py-8 text-center bg-white/5 border border-dashed border-white/10 rounded-2xl">
+                        <p className="text-[10px] font-orbitron text-zinc-600 uppercase tracking-widest">Nenhum legado consolidado ainda</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <button onClick={handleLogout} className="w-full py-5 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-500 font-orbitron font-black text-xs uppercase flex items-center justify-center gap-3 hover:bg-red-500/20 transition-all shadow-xl"><LogOut size={16} /> ENCERRAR SESSÃO</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {isAboutOpen && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[7000] flex items-center justify-center p-4">
+            <div onClick={() => setIsAboutOpen(false)} className="absolute inset-0 bg-black/90 backdrop-blur-md" />
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="relative w-full max-w-md bg-zinc-950 border border-cyan-500/30 rounded-[2.5rem] p-10 text-center shadow-2xl">
+              <h2 className="text-2xl font-orbitron font-black text-white italic uppercase mb-6 tracking-tighter">SOBRE O PROJETO</h2>
+              <p className="text-zinc-400 text-sm leading-relaxed mb-8">CRONO ESFERA é uma arena social experimental onde sua presença física e o tempo são os pilares da sua reputação na malha temporal.</p>
+              <div className="mt-2 pt-6 border-t border-cyan-500/20 mb-10">
+                <p className="text-[10px] font-orbitron text-cyan-500/50 uppercase tracking-[0.3em] mb-4">Pulsações na Rede</p>
+                <div className="flex justify-center gap-2">
+                  {visitCount.toString().padStart(6, '0').split('').map((digit, i) => (
+                    <div key={i} className="w-9 h-12 bg-cyan-500/5 border border-cyan-500/20 rounded-md flex items-center justify-center relative overflow-hidden shadow-inner">
+                      <span className="text-2xl font-orbitron font-black text-cyan-400 drop-shadow-[0_0_8px_rgba(0,229,255,0.8)]">{digit}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <button onClick={() => setIsAboutOpen(false)} className="w-full py-4 bg-cyan-500 text-black rounded-2xl font-orbitron font-black text-[10px] uppercase tracking-widest hover:brightness-110 shadow-lg">RETORNAR À ESFERA</button>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Detalhes do Setor */}
+        {selectedSlotId !== null && !isPosting && currentSlot && (
+          <div className="fixed inset-0 z-[500] flex items-center justify-center p-4">
+             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSelectedSlotId(null)} className="absolute inset-0 bg-black/90 backdrop-blur-xl" />
+             <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative w-full max-w-lg bg-zinc-950/50 border border-white/10 rounded-[3rem] overflow-hidden shadow-2xl flex flex-col">
+                <div className="absolute top-4 left-0 right-0 px-6 flex justify-between items-center z-10">
+                   <div className="bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10"><span className="text-[9px] font-orbitron font-black text-cyan-400 uppercase tracking-widest">SETOR #{currentSlot.id}</span></div>
+                   <button onClick={() => setSelectedSlotId(null)} className="p-2 bg-black/50 backdrop-blur-md border border-white/10 rounded-full text-white/50 hover:text-white transition-all"><X size={20} /></button>
+                </div>
+                <div className="relative aspect-square w-full bg-black flex items-center justify-center group overflow-hidden">
+                   <DynamicMedia src={currentSlot.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-[2s]" />
+                   <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-transparent pointer-events-none" />
+                </div>
+                <div className="p-8 space-y-6">
+                   <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                         <h3 className="text-xl md:text-2xl font-orbitron font-black italic tracking-tight truncate uppercase">{currentSlot.title}</h3>
+                         <div className="flex items-center gap-2 mt-2">
+                            <img src={currentSlot.occupantAvatar} className="w-6 h-6 rounded-full border border-cyan-500/50" alt="Occupant" />
+                            <span className="text-xs font-black text-zinc-400 uppercase tracking-wider">{currentSlot.occupantName}</span>
+                         </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                         <p className="text-[9px] font-orbitron text-zinc-500 font-bold uppercase tracking-widest mb-1">Permanência</p>
+                         <div className="flex items-center gap-2 justify-end text-cyan-400"><Clock size={14} /><span className="text-lg font-orbitron font-black tracking-tighter">{formatDuration(currentTime - currentSlot.startTime)}</span></div>
+                      </div>
+                   </div>
+                   <div className="bg-white/5 border border-white/5 p-4 rounded-2xl flex items-center justify-between shadow-inner">
+                      <span className="text-[9px] font-orbitron text-zinc-500 font-bold uppercase tracking-widest">Reconhecimento</span>
+                      <div className="flex items-center gap-2 text-red-500"><Heart size={14} className="fill-current" /><span className="text-sm font-orbitron font-black">{currentSlot.likes}</span></div>
+                   </div>
+                   <div className="flex gap-3">
+                      <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => handleLike(currentSlot.id)} className="flex-1 py-4 bg-white/5 border border-white/10 rounded-2xl font-orbitron font-black text-xs flex items-center justify-center gap-3 hover:bg-white/10 transition-all uppercase tracking-widest shadow-md"><Heart size={18} className="text-red-500" /> CURTIR</motion.button>
+                   </div>
+                   {currentSlot.occupantName !== userProfile?.name && (
+                      <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setIsPosting(true)} className="w-full py-5 bg-cyan-500 text-black rounded-2xl font-orbitron font-black text-xs uppercase tracking-[0.2em] hover:bg-cyan-400 transition-all flex items-center justify-center gap-3 shadow-xl"><Maximize2 size={18} /> REIVINDICAR ESTE ESPAÇO</motion.button>
+                   )}
+                </div>
+             </motion.div>
+          </div>
+        )}
+
+        {/* Captura de Media */}
+        {isPosting && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[8000] bg-black/95 backdrop-blur-3xl flex items-center justify-center p-4">
+            <div className="w-full max-w-2xl bg-zinc-900 border border-white/10 rounded-[3rem] overflow-hidden flex flex-col max-h-[90vh] shadow-3xl">
+              <div className="p-8 border-b border-white/5 flex justify-between items-center">
+                <button onClick={() => { stopCamera(); setIsPosting(false); }} className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-all"><ChevronLeft size={20} /></button>
+                <h2 className="text-xl font-orbitron font-black uppercase italic">Captura Biometríca</h2>
+                <div className="w-10" />
+              </div>
+              <div className="flex-1 overflow-y-auto p-8">
+                {postingStep === 'mode_select' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-10">
+                    <button onClick={() => { setCaptureMode('photo'); startCamera(); }} className="bg-white/5 border border-white/10 p-10 rounded-[2rem] flex flex-col items-center gap-6 hover:bg-cyan-500/10 transition-all cursor-pointer"><Camera size={48} className="text-cyan-400" /><p className="font-orbitron font-black text-sm uppercase">FOTO</p></button>
+                    <button onClick={() => { setCaptureMode('gif'); startCamera(); }} className="bg-white/5 border border-white/10 p-10 rounded-[2rem] flex flex-col items-center gap-6 hover:bg-purple-500/10 transition-all cursor-pointer"><Repeat size={48} className="text-purple-400" /><p className="font-orbitron font-black text-sm uppercase">LOOP</p></button>
+                  </div>
+                )}
+                {postingStep === 'camera' && (
+                  <div className="space-y-8 flex flex-col items-center">
+                    <div className="relative aspect-square w-full max-w-sm rounded-[2rem] overflow-hidden border-2 border-white/10 bg-black shadow-2xl">
+                      <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none" />
+                      <canvas ref={canvasRef} width={480} height={480} className="w-full h-full object-cover" />
+                      <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-2">
+                        {['none', 'noir', 'neon', 'invert'].map((f) => (
+                          <button key={f} onClick={() => setActiveFilter(f)} className={`px-3 py-1 rounded-full text-[8px] font-orbitron font-black border transition-all ${activeFilter === f ? 'bg-cyan-500 text-black border-cyan-500 shadow-[0_0_10px_#00e5ff]' : 'bg-black/60 text-white border-white/20'}`}>
+                            {f.toUpperCase()}
+                          </button>
+                        ))}
+                      </div>
+                      {isRecording && <div className="absolute top-4 left-4 bg-red-500 px-3 py-1 rounded-full text-[8px] font-black animate-pulse flex items-center gap-1 shadow-lg"><Sparkles size={10} /> REC</div>}
+                    </div>
+                    {isCameraLoading ? <Loader2 className="animate-spin text-cyan-400" size={32} /> : (
+                      <button onClick={handleCapture} disabled={isRecording} className="w-full py-5 bg-white text-black rounded-2xl font-orbitron font-black uppercase text-xs tracking-widest shadow-2xl cursor-pointer active:scale-95 transition-transform">
+                        {isRecording ? `GRAVANDO ${Math.round(recordingProgress)}%` : 'CONGELAR TEMPO'}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {postingStep === 'preview' && (
+                  <div className="space-y-8">
+                    <div className="flex flex-col md:flex-row gap-8 items-center">
+                      <div className="w-48 h-48 rounded-3xl overflow-hidden border border-white/10 shrink-0 shadow-2xl"><DynamicMedia src={capturedMedia!} className="w-full h-full object-cover" /></div>
+                      <div className="flex-1 w-full space-y-4">
+                        <label className="text-[10px] font-orbitron font-bold text-zinc-500 uppercase tracking-widest">Identificação do Legado</label>
+                        <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Defina seu legado..." className="w-full bg-white/5 border border-white/10 p-5 rounded-2xl text-white outline-none focus:border-cyan-500 uppercase font-orbitron font-bold shadow-inner" />
+                      </div>
+                    </div>
+                    <button onClick={handleFinalPost} disabled={!newTitle || isAnalyzing} className="w-full py-5 bg-cyan-500 text-black rounded-2xl font-orbitron font-black uppercase text-xs tracking-[0.2em] shadow-xl hover:brightness-110 cursor-pointer transition-all">
+                      {isAnalyzing ? 'SINCRONIZANDO...' : 'REIVINDICAR SETOR'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Tela de Login (Apenas Google via Firebase) */}
+      {!isLoggedIn && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[9000] bg-black/95 backdrop-blur-3xl flex flex-col items-center justify-center p-6 text-center">
+          <h1 className="text-6xl md:text-8xl font-orbitron font-black tracking-tighter italic glitch-text mb-12 shadow-cyan-500/20" data-text="CRONOESFERA">CRONO<span className="text-cyan-400">ESFERA</span></h1>
+          <div className="max-w-xs w-full space-y-6">
+            <p className="text-zinc-500 font-orbitron text-[9px] uppercase tracking-[0.3em] mb-4">Acesso exclusivo via rede neural Google</p>
+            <button 
+              onClick={handleGoogleLogin} 
+              disabled={isLoggingIn} 
+              className="w-full bg-white text-black px-12 py-5 rounded-2xl font-orbitron font-black text-xs tracking-[0.2em] flex items-center justify-center gap-4 hover:scale-105 transition-all shadow-2xl active:scale-95 cursor-pointer disabled:opacity-50"
+            >
+              {isLoggingIn ? <Loader2 className="animate-spin" size={18} /> : <><Users size={18} /> ENTRAR COM GOOGLE</>}
+            </button>
+            <p className="text-zinc-700 font-orbitron text-[7px] uppercase tracking-[0.2em] mt-8">Sincronizando com OAuth 436769177248...</p>
+          </div>
+        </motion.div>
+      )}
+    </div>
+  );
+};
+
+export default App;
