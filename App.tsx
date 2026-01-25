@@ -177,10 +177,21 @@ const App: React.FC = () => {
       }
     });
 
-    const savedVisits = localStorage.getItem('crono_visits');
-    const newCount = (parseInt(savedVisits || '0', 10)) + 1;
-    localStorage.setItem('crono_visits', newCount.toString());
-    setVisitCount(newCount);
+    // Lógica Global de Contador de Acessos (Firestore)
+    const statsRef = doc(db, "stats", "global");
+    
+    // Incrementa o contador global apenas uma vez por carregamento de página
+    updateDoc(statsRef, { visits: increment(1) }).catch(() => {
+      // Se o documento de stats ainda não existir, cria-o
+      setDoc(statsRef, { visits: 1 }, { merge: true });
+    });
+
+    // Listener para o contador de visitas global em tempo real
+    const unsubscribeGlobalStats = onSnapshot(statsRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setVisitCount(docSnap.data().visits || 0);
+      }
+    });
 
     const introSeen = localStorage.getItem('crono_intro_seen');
     if (!introSeen) setIsIntroOpen(true);
@@ -190,6 +201,7 @@ const App: React.FC = () => {
     return () => {
       unsubscribeAuth();
       unsubscribeSlots();
+      unsubscribeGlobalStats();
       clearInterval(timer);
     };
   }, []);
