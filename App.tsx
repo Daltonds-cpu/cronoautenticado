@@ -112,12 +112,12 @@ const App: React.FC = () => {
   const requestRef = useRef<number>(0);
   const framesBuffer = useRef<string[]>([]);
 
-  // Firebase Auth State Listener
+  // Monitor de Estado de Autenticação do Firebase
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user: User | null) => {
       if (user) {
         const profile: UserProfile = {
-          name: user.displayName || 'VIAJANTE DO TEMPO',
+          name: user.displayName?.toUpperCase() || 'VIAJANTE DO TEMPO',
           avatar: user.photoURL || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${user.uid}`,
           maxTimeSeconds: 0,
           totalLikes: 0,
@@ -131,6 +131,9 @@ const App: React.FC = () => {
         setIsLoggedIn(false);
         setUserProfile(null);
       }
+    }, (error) => {
+      console.error("Erro no estado de auth:", error);
+      addNotification("Erro na malha de autenticação.");
     });
 
     const savedVisits = localStorage.getItem('crono_visits');
@@ -181,13 +184,18 @@ const App: React.FC = () => {
   };
 
   const handleGoogleLogin = async () => {
+    if (isLoggingIn) return;
     setIsLoggingIn(true);
     try {
       await signInWithPopup(auth, googleProvider);
-      addNotification("Conexão estabelecida via Google.");
+      addNotification("Conexão estabelecida.");
     } catch (error: any) {
       console.error("Erro no login:", error);
-      addNotification("Falha na sincronização.");
+      if (error.code === 'auth/popup-closed-by-user') {
+        addNotification("Login cancelado.");
+      } else {
+        addNotification("Falha na sincronização.");
+      }
     } finally {
       setIsLoggingIn(false);
     }
@@ -196,19 +204,14 @@ const App: React.FC = () => {
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      setIsLoggedIn(false);
-      setUserProfile(null);
-      setIsProfileOpen(false);
-      setIsRankingOpen(false);
-      setSelectedSlotId(null);
-      addNotification("Conexão encerrada.");
+      addNotification("Sessão encerrada.");
     } catch (error) {
       console.error("Erro no logout:", error);
     }
   };
 
   const handleWhatsAppInvite = () => {
-    const text = encodeURIComponent("Reivindique seu espaço no tempo na Crono Esfera! " + window.location.href);
+    const text = encodeURIComponent("Junte-se a mim na Crono Esfera! Domine o tempo agora: " + window.location.href);
     window.open(`https://wa.me/?text=${text}`, '_blank');
   };
 
@@ -219,7 +222,7 @@ const App: React.FC = () => {
     if (!isSimulated && userProfile) {
       const postKey = `${slot.id}-${slot.startTime}`;
       if (userProfile.likedPosts?.includes(postKey)) {
-        addNotification("Setor já reconhecido.");
+        addNotification("Setor já curtido.");
         return;
       }
     }
@@ -233,7 +236,6 @@ const App: React.FC = () => {
         likedPosts: isSimulated ? userProfile.likedPosts : [...(userProfile.likedPosts || []), `${slot.id}-${slot.startTime}`]
       };
       setUserProfile(updatedProfile);
-      if (!isSimulated) addNotification("Seu legado ganha força.");
     } else if (userProfile && !isSimulated) {
       const updatedProfile: UserProfile = { 
         ...userProfile, 
@@ -257,7 +259,7 @@ const App: React.FC = () => {
       setStream(newStream);
       setPostingStep('camera');
     } catch (err) { 
-      addNotification("Hardware visual bloqueado."); 
+      addNotification("Câmera bloqueada."); 
       console.error(err);
     } finally { 
       setIsCameraLoading(false); 
@@ -363,8 +365,7 @@ const App: React.FC = () => {
     
     const aiComment = await aiFeedbackPromise;
     setIsAnalyzing(false);
-    addNotification(`Setor #${selectedSlotId} conquistado.`);
-    setTimeout(() => addNotification(`IA: "${aiComment}"`), 1000);
+    addNotification(`IA: "${aiComment}"`);
   };
 
   const leaderboard = useMemo(() => [...slots].sort((a, b) => a.startTime - b.startTime).slice(0, 10), [slots]);
@@ -418,79 +419,77 @@ const App: React.FC = () => {
         </AnimatePresence>
       </div>
 
-      {/* Globo 3D */}
-      <div className="absolute inset-0 z-0">
-        <Canvas camera={{ position: [0, 0, 22], fov: 40 }} dpr={[1, 2]}>
-          <Suspense fallback={null}>
-            <GlobeView 
-              slots={slots} 
-              onSlotClick={(id) => isLoggedIn && setSelectedSlotId(id)} 
-              onHover={(id) => setHoveredSlotId(id)} 
-              selectedSlotId={selectedSlotId} 
-              hoveredSlotId={hoveredSlotId} 
-            />
-          </Suspense>
-        </Canvas>
-      </div>
-
-      {/* Interface Cabeçalho */}
-      <header className="absolute top-0 left-0 w-full p-4 md:p-8 flex flex-col sm:flex-row justify-between items-center sm:items-start gap-4 z-[100] pointer-events-none">
-        <div className="pointer-events-auto flex items-center gap-4">
-          <div className="text-center sm:text-left">
-            <h1 className="text-lg md:text-2xl font-orbitron font-black italic tracking-tighter flex items-center gap-2">
-              <Clock className="text-cyan-400" size={24} /> <span>CRONO</span> <span className="text-cyan-400">ESFERA</span>
-            </h1>
-            <p className="text-[8px] font-orbitron text-cyan-500/50 tracking-[0.6em] mt-1 uppercase">Malha Ativa</p>
+      {/* Somente renderiza a interface principal se estiver logado */}
+      {isLoggedIn && userProfile ? (
+        <>
+          <div className="absolute inset-0 z-0">
+            <Canvas camera={{ position: [0, 0, 22], fov: 40 }} dpr={[1, 2]}>
+              <Suspense fallback={null}>
+                <GlobeView 
+                  slots={slots} 
+                  onSlotClick={(id) => setSelectedSlotId(id)} 
+                  onHover={(id) => setHoveredSlotId(id)} 
+                  selectedSlotId={selectedSlotId} 
+                  hoveredSlotId={hoveredSlotId} 
+                />
+              </Suspense>
+            </Canvas>
           </div>
-          <button 
-            onClick={() => setIsAboutOpen(true)} 
-            className="p-2 bg-white/5 border border-white/10 rounded-full hover:text-cyan-400 transition-all pointer-events-auto shadow-xl"
-          >
-            <HelpCircle size={18} />
-          </button>
-        </div>
 
-        {isLoggedIn && userProfile && (
-          <div className="flex flex-row sm:flex-col items-center sm:items-end gap-3 pointer-events-auto">
+          <header className="absolute top-0 left-0 w-full p-4 md:p-8 flex flex-col sm:flex-row justify-between items-center sm:items-start gap-4 z-[100] pointer-events-none">
+            <div className="pointer-events-auto flex items-center gap-4">
+              <div className="text-center sm:text-left">
+                <h1 className="text-lg md:text-2xl font-orbitron font-black italic tracking-tighter flex items-center gap-2">
+                  <Clock className="text-cyan-400" size={24} /> <span>CRONO</span> <span className="text-cyan-400">ESFERA</span>
+                </h1>
+                <p className="text-[8px] font-orbitron text-cyan-500/50 tracking-[0.6em] mt-1 uppercase">Malha Ativa</p>
+              </div>
+              <button onClick={() => setIsAboutOpen(true)} className="p-2 bg-white/5 border border-white/10 rounded-full hover:text-cyan-400 transition-all pointer-events-auto shadow-xl">
+                <HelpCircle size={18} />
+              </button>
+            </div>
+
+            <div className="flex flex-row sm:flex-col items-center sm:items-end gap-3 pointer-events-auto">
+              <button onClick={() => setIsProfileOpen(true)} className="bg-zinc-900/60 backdrop-blur-xl border border-white/10 p-1.5 pr-4 rounded-full flex items-center gap-3 hover:bg-white/10 transition-all shadow-xl">
+                <img src={userProfile.avatar} className="w-8 h-8 rounded-full border border-cyan-500" alt="Avatar" />
+                <span className="text-[10px] font-black font-orbitron text-cyan-400 uppercase tracking-widest truncate max-w-[120px]">{userProfile.name}</span>
+              </button>
+              <button onClick={() => setIsRankingOpen(true)} className="bg-cyan-500/10 border border-cyan-500/30 px-5 py-2 rounded-full text-cyan-400 font-orbitron font-black text-[9px] flex items-center gap-2 hover:bg-cyan-500/20 transition-all shadow-md">
+                <Trophy size={14} /> <span>LEADERBOARD</span>
+              </button>
+            </div>
+          </header>
+
+          <div className="fixed bottom-8 right-8 z-[1000]">
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleWhatsAppInvite} className="w-14 h-14 bg-[#25D366] text-white rounded-2xl flex items-center justify-center shadow-2xl border-2 border-white/20 hover:brightness-110 transition-all cursor-pointer">
+              <MessageCircle size={28} />
+            </motion.button>
+          </div>
+
+          {!selectedSlotId && !isPosting && (
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="fixed bottom-24 sm:bottom-12 left-0 right-0 z-[50] pointer-events-none flex flex-col items-center px-6">
+              <p className="font-orbitron text-[10px] font-bold text-cyan-400 tracking-[0.5em] uppercase text-center drop-shadow-xl">SELECIONE UM SETOR NA ESFERA</p>
+            </motion.div>
+          )}
+        </>
+      ) : (
+        /* Tela de Login (Apenas visível se não autenticado) */
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[9000] bg-black flex flex-col items-center justify-center p-6 text-center">
+          <h1 className="text-6xl md:text-8xl font-orbitron font-black tracking-tighter italic glitch-text mb-12" data-text="CRONOESFERA">CRONO<span className="text-cyan-400">ESFERA</span></h1>
+          <div className="max-w-xs w-full space-y-6">
+            <p className="text-zinc-500 font-orbitron text-[9px] uppercase tracking-[0.3em] mb-4">Acesso exclusivo via rede neural Google</p>
             <button 
-              onClick={() => setIsProfileOpen(true)} 
-              className="bg-zinc-900/60 backdrop-blur-xl border border-white/10 p-1.5 pr-4 rounded-full flex items-center gap-3 hover:bg-white/10 transition-all shadow-xl"
+              onClick={handleGoogleLogin} 
+              disabled={isLoggingIn} 
+              className="w-full bg-white text-black px-12 py-5 rounded-2xl font-orbitron font-black text-xs tracking-[0.2em] flex items-center justify-center gap-4 hover:scale-105 transition-all shadow-2xl active:scale-95 cursor-pointer disabled:opacity-50"
             >
-              <img src={userProfile.avatar} className="w-8 h-8 rounded-full border border-cyan-500" alt="Avatar" />
-              <span className="text-[10px] font-black font-orbitron text-cyan-400 uppercase tracking-widest truncate max-w-[120px]">{userProfile.name}</span>
-            </button>
-            <button 
-              onClick={() => setIsRankingOpen(true)} 
-              className="bg-cyan-500/10 border border-cyan-500/30 px-5 py-2 rounded-full text-cyan-400 font-orbitron font-black text-[9px] flex items-center gap-2 hover:bg-cyan-500/20 transition-all shadow-md"
-            >
-              <Trophy size={14} /> <span>LEADERBOARD</span>
+              {isLoggingIn ? <Loader2 className="animate-spin" size={18} /> : <><Users size={18} /> ENTRAR COM GOOGLE</>}
             </button>
           </div>
-        )}
-      </header>
-
-      {/* Compartilhamento WhatsApp */}
-      {isLoggedIn && (
-        <div className="fixed bottom-8 right-8 z-[1000]">
-          <motion.button 
-            whileHover={{ scale: 1.1 }} 
-            whileTap={{ scale: 0.9 }} 
-            onClick={handleWhatsAppInvite} 
-            className="w-14 h-14 bg-[#25D366] text-white rounded-2xl flex items-center justify-center shadow-2xl border-2 border-white/20 hover:brightness-110 transition-all cursor-pointer"
-          >
-            <MessageCircle size={28} />
-          </motion.button>
-        </div>
-      )}
-
-      {/* Dicas da UI */}
-      {isLoggedIn && !selectedSlotId && !isPosting && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="fixed bottom-24 sm:bottom-12 left-0 right-0 z-[50] pointer-events-none flex flex-col items-center px-6">
-          <p className="font-orbitron text-[10px] font-bold text-cyan-400 tracking-[0.5em] uppercase text-center drop-shadow-xl">SELECIONE UM SETOR NA ESFERA</p>
         </motion.div>
       )}
 
-      {/* Modais */}
+      {/* Modais e Overlays mantidos abaixo (AnimatePresence lida com visibilidade) */}
       <AnimatePresence>
         {isRankingOpen && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
@@ -527,63 +526,17 @@ const App: React.FC = () => {
                 <h3 className="text-2xl font-orbitron font-black uppercase mb-6 tracking-tight">{userProfile?.name}</h3>
                 <div className="flex justify-center gap-8">
                   <div className="text-center">
-                    <p className="text-[10px] font-orbitron text-zinc-500 uppercase tracking-widest mb-1">Curtidas Recebidas</p>
+                    <p className="text-[10px] font-orbitron text-zinc-500 uppercase tracking-widest mb-1">Curtidas</p>
                     <div className="flex items-center gap-2 justify-center text-red-500"><Heart size={16} className="fill-current" /><span className="text-2xl font-orbitron font-black">{userProfile?.totalLikes || 0}</span></div>
                   </div>
-                  <div className="text-center">
-                    <p className="text-[10px] font-orbitron text-zinc-500 uppercase tracking-widest mb-1">Setores Ativos</p>
-                    <div className="flex items-center gap-2 justify-center text-cyan-400"><Target size={16} /><span className="text-2xl font-orbitron font-black">{slots.filter(s => s.occupantName === userProfile?.name).length}</span></div>
-                  </div>
                 </div>
               </div>
-              <div className="space-y-6">
-                <div>
-                  <h4 className="text-[11px] font-orbitron font-black text-zinc-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2"><Award size={14} className="text-yellow-500" /> TOP 5 LEGADOS</h4>
-                  <div className="space-y-3">
-                    {topHistory.length > 0 ? topHistory.map((item, idx) => (
-                      <div key={item.id} className="bg-white/5 border border-white/5 rounded-2xl p-3 flex items-center gap-4 group hover:bg-white/10 transition-all">
-                        <div className="w-14 h-14 rounded-xl overflow-hidden border border-white/10 shrink-0"><DynamicMedia src={item.imageUrl} className="w-full h-full object-cover" /></div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[10px] font-orbitron font-black text-cyan-400 uppercase truncate mb-1">{item.title}</p>
-                          <div className="flex items-center gap-2 text-zinc-500"><Clock size={12} /><span className="text-[10px] font-medium">{formatSeconds(item.finalDurationSeconds)}</span></div>
-                        </div>
-                        <div className="text-zinc-700 font-orbitron font-black text-lg">#{idx + 1}</div>
-                      </div>
-                    )) : (
-                      <div className="py-8 text-center bg-white/5 border border-dashed border-white/10 rounded-2xl">
-                        <p className="text-[10px] font-orbitron text-zinc-600 uppercase tracking-widest">Nenhum legado consolidado ainda</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <button onClick={handleLogout} className="w-full py-5 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-500 font-orbitron font-black text-xs uppercase flex items-center justify-center gap-3 hover:bg-red-500/20 transition-all shadow-xl"><LogOut size={16} /> ENCERRAR SESSÃO</button>
-              </div>
+              <button onClick={handleLogout} className="w-full py-5 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-500 font-orbitron font-black text-xs uppercase flex items-center justify-center gap-3 hover:bg-red-500/20 transition-all"><LogOut size={16} /> ENCERRAR SESSÃO</button>
             </motion.div>
           </motion.div>
         )}
 
-        {isAboutOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[7000] flex items-center justify-center p-4">
-            <div onClick={() => setIsAboutOpen(false)} className="absolute inset-0 bg-black/90 backdrop-blur-md" />
-            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="relative w-full max-w-md bg-zinc-950 border border-cyan-500/30 rounded-[2.5rem] p-10 text-center shadow-2xl">
-              <h2 className="text-2xl font-orbitron font-black text-white italic uppercase mb-6 tracking-tighter">SOBRE O PROJETO</h2>
-              <p className="text-zinc-400 text-sm leading-relaxed mb-8">CRONO ESFERA é uma arena social experimental onde sua presença física e o tempo são os pilares da sua reputação na malha temporal.</p>
-              <div className="mt-2 pt-6 border-t border-cyan-500/20 mb-10">
-                <p className="text-[10px] font-orbitron text-cyan-500/50 uppercase tracking-[0.3em] mb-4">Pulsações na Rede</p>
-                <div className="flex justify-center gap-2">
-                  {visitCount.toString().padStart(6, '0').split('').map((digit, i) => (
-                    <div key={i} className="w-9 h-12 bg-cyan-500/5 border border-cyan-500/20 rounded-md flex items-center justify-center relative overflow-hidden shadow-inner">
-                      <span className="text-2xl font-orbitron font-black text-cyan-400 drop-shadow-[0_0_8px_rgba(0,229,255,0.8)]">{digit}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <button onClick={() => setIsAboutOpen(false)} className="w-full py-4 bg-cyan-500 text-black rounded-2xl font-orbitron font-black text-[10px] uppercase tracking-widest hover:brightness-110 shadow-lg">RETORNAR À ESFERA</button>
-            </motion.div>
-          </motion.div>
-        )}
-
-        {/* Detalhes do Setor */}
+        {/* Detalhes do Setor Selecionado */}
         {selectedSlotId !== null && !isPosting && currentSlot && (
           <div className="fixed inset-0 z-[500] flex items-center justify-center p-4">
              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSelectedSlotId(null)} className="absolute inset-0 bg-black/90 backdrop-blur-xl" />
@@ -610,35 +563,31 @@ const App: React.FC = () => {
                          <div className="flex items-center gap-2 justify-end text-cyan-400"><Clock size={14} /><span className="text-lg font-orbitron font-black tracking-tighter">{formatDuration(currentTime - currentSlot.startTime)}</span></div>
                       </div>
                    </div>
-                   <div className="bg-white/5 border border-white/5 p-4 rounded-2xl flex items-center justify-between shadow-inner">
-                      <span className="text-[9px] font-orbitron text-zinc-500 font-bold uppercase tracking-widest">Reconhecimento</span>
-                      <div className="flex items-center gap-2 text-red-500"><Heart size={14} className="fill-current" /><span className="text-sm font-orbitron font-black">{currentSlot.likes}</span></div>
-                   </div>
                    <div className="flex gap-3">
-                      <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => handleLike(currentSlot.id)} className="flex-1 py-4 bg-white/5 border border-white/10 rounded-2xl font-orbitron font-black text-xs flex items-center justify-center gap-3 hover:bg-white/10 transition-all uppercase tracking-widest shadow-md"><Heart size={18} className="text-red-500" /> CURTIR</motion.button>
+                      <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => handleLike(currentSlot.id)} className="flex-1 py-4 bg-white/5 border border-white/10 rounded-2xl font-orbitron font-black text-xs flex items-center justify-center gap-3 hover:bg-white/10 transition-all uppercase tracking-widest"><Heart size={18} className="text-red-500" /> CURTIR</motion.button>
                    </div>
                    {currentSlot.occupantName !== userProfile?.name && (
-                      <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setIsPosting(true)} className="w-full py-5 bg-cyan-500 text-black rounded-2xl font-orbitron font-black text-xs uppercase tracking-[0.2em] hover:bg-cyan-400 transition-all flex items-center justify-center gap-3 shadow-xl"><Maximize2 size={18} /> REIVINDICAR ESTE ESPAÇO</motion.button>
+                      <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setIsPosting(true)} className="w-full py-5 bg-cyan-500 text-black rounded-2xl font-orbitron font-black text-xs uppercase tracking-[0.2em] hover:bg-cyan-400 transition-all flex items-center justify-center gap-3"><Maximize2 size={18} /> REIVINDICAR ESTE ESPAÇO</motion.button>
                    )}
                 </div>
              </motion.div>
           </div>
         )}
 
-        {/* Captura de Media */}
+        {/* Captura de Media e Postagem mantidos conforme original */}
         {isPosting && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[8000] bg-black/95 backdrop-blur-3xl flex items-center justify-center p-4">
-            <div className="w-full max-w-2xl bg-zinc-900 border border-white/10 rounded-[3rem] overflow-hidden flex flex-col max-h-[90vh] shadow-3xl">
+            <div className="w-full max-w-2xl bg-zinc-900 border border-white/10 rounded-[3rem] overflow-hidden flex flex-col max-h-[90vh]">
               <div className="p-8 border-b border-white/5 flex justify-between items-center">
-                <button onClick={() => { stopCamera(); setIsPosting(false); }} className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-all"><ChevronLeft size={20} /></button>
-                <h2 className="text-xl font-orbitron font-black uppercase italic">Captura Biometríca</h2>
+                <button onClick={() => { stopCamera(); setIsPosting(false); }} className="p-2 bg-white/5 rounded-full"><ChevronLeft size={20} /></button>
+                <h2 className="text-xl font-orbitron font-black uppercase italic">Captura</h2>
                 <div className="w-10" />
               </div>
               <div className="flex-1 overflow-y-auto p-8">
                 {postingStep === 'mode_select' && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-10">
-                    <button onClick={() => { setCaptureMode('photo'); startCamera(); }} className="bg-white/5 border border-white/10 p-10 rounded-[2rem] flex flex-col items-center gap-6 hover:bg-cyan-500/10 transition-all cursor-pointer"><Camera size={48} className="text-cyan-400" /><p className="font-orbitron font-black text-sm uppercase">FOTO</p></button>
-                    <button onClick={() => { setCaptureMode('gif'); startCamera(); }} className="bg-white/5 border border-white/10 p-10 rounded-[2rem] flex flex-col items-center gap-6 hover:bg-purple-500/10 transition-all cursor-pointer"><Repeat size={48} className="text-purple-400" /><p className="font-orbitron font-black text-sm uppercase">LOOP</p></button>
+                    <button onClick={() => { setCaptureMode('photo'); startCamera(); }} className="bg-white/5 border border-white/10 p-10 rounded-[2rem] flex flex-col items-center gap-6 hover:bg-cyan-500/10 cursor-pointer"><Camera size={48} className="text-cyan-400" /><p className="font-orbitron font-black text-sm uppercase">FOTO</p></button>
+                    <button onClick={() => { setCaptureMode('gif'); startCamera(); }} className="bg-white/5 border border-white/10 p-10 rounded-[2rem] flex flex-col items-center gap-6 hover:bg-purple-500/10 cursor-pointer"><Repeat size={48} className="text-purple-400" /><p className="font-orbitron font-black text-sm uppercase">LOOP</p></button>
                   </div>
                 )}
                 {postingStep === 'camera' && (
@@ -646,18 +595,10 @@ const App: React.FC = () => {
                     <div className="relative aspect-square w-full max-w-sm rounded-[2rem] overflow-hidden border-2 border-white/10 bg-black shadow-2xl">
                       <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none" />
                       <canvas ref={canvasRef} width={480} height={480} className="w-full h-full object-cover" />
-                      <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-2">
-                        {['none', 'noir', 'neon', 'invert'].map((f) => (
-                          <button key={f} onClick={() => setActiveFilter(f)} className={`px-3 py-1 rounded-full text-[8px] font-orbitron font-black border transition-all ${activeFilter === f ? 'bg-cyan-500 text-black border-cyan-500 shadow-[0_0_10px_#00e5ff]' : 'bg-black/60 text-white border-white/20'}`}>
-                            {f.toUpperCase()}
-                          </button>
-                        ))}
-                      </div>
-                      {isRecording && <div className="absolute top-4 left-4 bg-red-500 px-3 py-1 rounded-full text-[8px] font-black animate-pulse flex items-center gap-1 shadow-lg"><Sparkles size={10} /> REC</div>}
                     </div>
                     {isCameraLoading ? <Loader2 className="animate-spin text-cyan-400" size={32} /> : (
-                      <button onClick={handleCapture} disabled={isRecording} className="w-full py-5 bg-white text-black rounded-2xl font-orbitron font-black uppercase text-xs tracking-widest shadow-2xl cursor-pointer active:scale-95 transition-transform">
-                        {isRecording ? `GRAVANDO ${Math.round(recordingProgress)}%` : 'CONGELAR TEMPO'}
+                      <button onClick={handleCapture} disabled={isRecording} className="w-full py-5 bg-white text-black rounded-2xl font-orbitron font-black uppercase text-xs tracking-widest cursor-pointer">
+                        {isRecording ? `GRAVANDO...` : 'CAPTURAR'}
                       </button>
                     )}
                   </div>
@@ -665,14 +606,13 @@ const App: React.FC = () => {
                 {postingStep === 'preview' && (
                   <div className="space-y-8">
                     <div className="flex flex-col md:flex-row gap-8 items-center">
-                      <div className="w-48 h-48 rounded-3xl overflow-hidden border border-white/10 shrink-0 shadow-2xl"><DynamicMedia src={capturedMedia!} className="w-full h-full object-cover" /></div>
+                      <div className="w-48 h-48 rounded-3xl overflow-hidden border border-white/10 shrink-0"><DynamicMedia src={capturedMedia!} className="w-full h-full object-cover" /></div>
                       <div className="flex-1 w-full space-y-4">
-                        <label className="text-[10px] font-orbitron font-bold text-zinc-500 uppercase tracking-widest">Identificação do Legado</label>
-                        <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Defina seu legado..." className="w-full bg-white/5 border border-white/10 p-5 rounded-2xl text-white outline-none focus:border-cyan-500 uppercase font-orbitron font-bold shadow-inner" />
+                        <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Título do legado..." className="w-full bg-white/5 border border-white/10 p-5 rounded-2xl text-white outline-none focus:border-cyan-500 uppercase font-orbitron font-bold" />
                       </div>
                     </div>
-                    <button onClick={handleFinalPost} disabled={!newTitle || isAnalyzing} className="w-full py-5 bg-cyan-500 text-black rounded-2xl font-orbitron font-black uppercase text-xs tracking-[0.2em] shadow-xl hover:brightness-110 cursor-pointer transition-all">
-                      {isAnalyzing ? 'SINCRONIZANDO...' : 'REIVINDICAR SETOR'}
+                    <button onClick={handleFinalPost} disabled={!newTitle || isAnalyzing} className="w-full py-5 bg-cyan-500 text-black rounded-2xl font-orbitron font-black uppercase text-xs tracking-[0.2em] shadow-xl">
+                      {isAnalyzing ? 'SINCRONIZANDO...' : 'REIVINDICAR'}
                     </button>
                   </div>
                 )}
@@ -681,24 +621,6 @@ const App: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Tela de Login (Apenas Google via Firebase) */}
-      {!isLoggedIn && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[9000] bg-black/95 backdrop-blur-3xl flex flex-col items-center justify-center p-6 text-center">
-          <h1 className="text-6xl md:text-8xl font-orbitron font-black tracking-tighter italic glitch-text mb-12 shadow-cyan-500/20" data-text="CRONOESFERA">CRONO<span className="text-cyan-400">ESFERA</span></h1>
-          <div className="max-w-xs w-full space-y-6">
-            <p className="text-zinc-500 font-orbitron text-[9px] uppercase tracking-[0.3em] mb-4">Acesso exclusivo via rede neural Google</p>
-            <button 
-              onClick={handleGoogleLogin} 
-              disabled={isLoggingIn} 
-              className="w-full bg-white text-black px-12 py-5 rounded-2xl font-orbitron font-black text-xs tracking-[0.2em] flex items-center justify-center gap-4 hover:scale-105 transition-all shadow-2xl active:scale-95 cursor-pointer disabled:opacity-50"
-            >
-              {isLoggingIn ? <Loader2 className="animate-spin" size={18} /> : <><Users size={18} /> ENTRAR COM GOOGLE</>}
-            </button>
-            <p className="text-zinc-700 font-orbitron text-[7px] uppercase tracking-[0.2em] mt-8">Sincronizando com OAuth 436769177248...</p>
-          </div>
-        </motion.div>
-      )}
     </div>
   );
 };
