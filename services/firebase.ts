@@ -1,7 +1,7 @@
 
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, collection, doc, setDoc, updateDoc, onSnapshot, query, getDocs, writeBatch, increment } from "firebase/firestore";
 
 /**
  * Configuração oficial do projeto Crono Esfera.
@@ -27,5 +27,18 @@ googleProvider.setCustomParameters({
   prompt: 'select_account'
 });
 
-export { signInWithPopup, signOut, onAuthStateChanged };
+export { 
+  signInWithPopup, 
+  signOut, 
+  onAuthStateChanged,
+  collection,
+  doc,
+  setDoc,
+  updateDoc,
+  onSnapshot,
+  query,
+  getDocs,
+  writeBatch,
+  increment
+};
 export type { User };

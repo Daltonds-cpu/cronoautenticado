@@ -7,7 +7,24 @@ import { GLOBE_RADIUS, MOCK_USERS } from './constants';
 import { Trophy, Camera, X, Clock, Heart, Bell, ChevronLeft, Loader2, Repeat, LogOut, Users, HelpCircle, MessageCircle, Maximize2, Zap, Target, ShieldCheck, Sparkles, Award } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { analyzePostImpact } from './services/geminiService';
-import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged, User } from './services/firebase';
+import { 
+  auth, 
+  googleProvider, 
+  signInWithPopup, 
+  signOut, 
+  onAuthStateChanged, 
+  User, 
+  db, 
+  collection, 
+  doc, 
+  setDoc, 
+  updateDoc, 
+  onSnapshot, 
+  query, 
+  getDocs, 
+  writeBatch, 
+  increment 
+} from './services/firebase';
 import * as THREE from 'three';
 
 const formatDuration = (ms: number): string => {
@@ -114,7 +131,7 @@ const App: React.FC = () => {
 
   // Monitor de Estado de Autenticação do Firebase
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user: User | null) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user: User | null) => {
       if (user) {
         const profile: UserProfile = {
           name: user.displayName?.toUpperCase() || 'VIAJANTE DO TEMPO',
@@ -131,8 +148,33 @@ const App: React.FC = () => {
         setIsLoggedIn(false);
         setUserProfile(null);
       }
-    }, (error) => {
-      console.error("Erro no estado de auth:", error);
+    });
+
+    // Monitoramento em Tempo Real do Firestore para Slots
+    const q = query(collection(db, "slots"));
+    const unsubscribeSlots = onSnapshot(q, (snapshot) => {
+      const fetchedSlots: SlotData[] = [];
+      snapshot.forEach((doc) => {
+        fetchedSlots.push(doc.data() as SlotData);
+      });
+
+      if (fetchedSlots.length === 0) {
+        // Se o banco estiver vazio, gera slots iniciais e popula o Firestore (Seeding)
+        const initial = generateInitialSlots();
+        setSlots(initial);
+        
+        // Apenas o primeiro usuário logado que detecta vazio faz o seed
+        if (auth.currentUser) {
+          const batch = writeBatch(db);
+          initial.forEach(slot => {
+            const docRef = doc(db, "slots", slot.id.toString());
+            batch.set(docRef, slot);
+          });
+          batch.commit().then(() => console.log("Malha temporal inicializada no Firestore."));
+        }
+      } else {
+        setSlots(fetchedSlots.sort((a, b) => a.id - b.id));
+      }
     });
 
     const savedVisits = localStorage.getItem('crono_visits');
@@ -143,14 +185,22 @@ const App: React.FC = () => {
     const introSeen = localStorage.getItem('crono_intro_seen');
     if (!introSeen) setIsIntroOpen(true);
 
-    setSlots(generateInitialSlots());
     const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
     
     return () => {
-      unsubscribe();
+      unsubscribeAuth();
+      unsubscribeSlots();
       clearInterval(timer);
     };
   }, []);
+
+  // Cálculo dinâmico de likes totais do usuário baseados nos slots globais
+  const calculatedTotalLikes = useMemo(() => {
+    if (!userProfile) return 0;
+    return slots
+      .filter(s => s.occupantName === userProfile.name)
+      .reduce((acc, s) => acc + s.likes, 0);
+  }, [slots, userProfile]);
 
   useEffect(() => {
     if (!isLoggedIn || !userProfile) return;
@@ -214,7 +264,7 @@ const App: React.FC = () => {
     window.open(`https://wa.me/?text=${text}`, '_blank');
   };
 
-  const handleLike = (id: number, isSimulated: boolean = false) => {
+  const handleLike = async (id: number, isSimulated: boolean = false) => {
     const slot = slots.find((s) => s.id === id);
     if (!slot) return;
 
@@ -226,22 +276,23 @@ const App: React.FC = () => {
       }
     }
 
-    setSlots((prev) => prev.map((s) => s.id === id ? { ...s, likes: s.likes + 1 } : s));
+    try {
+      // Atualiza no Firestore para sincronizar com todos
+      const slotRef = doc(db, "slots", id.toString());
+      await updateDoc(slotRef, {
+        likes: increment(1)
+      });
 
-    if (userProfile && slot.occupantName === userProfile.name) {
-      const updatedProfile: UserProfile = { 
-        ...userProfile, 
-        totalLikes: userProfile.totalLikes + 1,
-        likedPosts: isSimulated ? userProfile.likedPosts : [...(userProfile.likedPosts || []), `${slot.id}-${slot.startTime}`]
-      };
-      setUserProfile(updatedProfile);
-    } else if (userProfile && !isSimulated) {
-      const updatedProfile: UserProfile = { 
-        ...userProfile, 
-        likedPosts: [...(userProfile.likedPosts || []), `${slot.id}-${slot.startTime}`] 
-      };
-      setUserProfile(updatedProfile);
-      addNotification("Reconhecimento enviado.");
+      if (userProfile && !isSimulated) {
+        const updatedProfile: UserProfile = { 
+          ...userProfile, 
+          likedPosts: [...(userProfile.likedPosts || []), `${slot.id}-${slot.startTime}`] 
+        };
+        setUserProfile(updatedProfile);
+        addNotification("Reconhecimento enviado.");
+      }
+    } catch (error) {
+      console.error("Erro ao curtir slot:", error);
     }
   };
 
@@ -341,32 +392,45 @@ const App: React.FC = () => {
       timestamp: now
     };
     
+    // Histórico local persistente
     setUserHistory((prev) => {
       const updatedHistory = [newHistoryItem, ...prev].slice(0, 50);
       localStorage.setItem(`crono_history_${auth.currentUser?.uid}`, JSON.stringify(updatedHistory));
       return updatedHistory;
     });
     
-    setSlots((prev) => prev.map((s) => s.id === selectedSlotId ? { 
-      ...s, occupantName: userProfile.name, occupantAvatar: userProfile.avatar, 
-      title: newTitle.toUpperCase(), startTime: now, imageUrl: capturedMedia, likes: 0 
-    } : s));
-    
-    setIsPosting(false); 
-    setPostingStep('mode_select'); 
-    setCapturedMedia(null); 
-    setNewTitle('');
-    setSelectedSlotId(null);
-    
-    const aiComment = await aiFeedbackPromise;
-    setIsAnalyzing(false);
-    addNotification(`IA: "${aiComment}"`);
+    try {
+      // Salva no Firestore para atualização global em tempo real
+      const slotRef = doc(db, "slots", selectedSlotId.toString());
+      const updatedSlot: Partial<SlotData> = {
+        occupantName: userProfile.name,
+        occupantAvatar: userProfile.avatar,
+        title: newTitle.toUpperCase(),
+        startTime: now,
+        imageUrl: capturedMedia,
+        likes: 0
+      };
+      await updateDoc(slotRef, updatedSlot);
+      
+      setIsPosting(false); 
+      setPostingStep('mode_select'); 
+      setCapturedMedia(null); 
+      setNewTitle('');
+      setSelectedSlotId(null);
+      
+      const aiComment = await aiFeedbackPromise;
+      setIsAnalyzing(false);
+      addNotification(`IA: "${aiComment}"`);
+    } catch (error) {
+      console.error("Erro ao publicar no Firestore:", error);
+      setIsAnalyzing(false);
+      addNotification("Erro na malha temporal.");
+    }
   };
 
   const leaderboard = useMemo(() => [...slots].sort((a, b) => a.startTime - b.startTime).slice(0, 10), [slots]);
   const currentSlot = useMemo(() => slots.find((s) => s.id === selectedSlotId), [slots, selectedSlotId]);
   
-  // Histórico das últimas 5 postagens por ordem cronológica
   const recentHistory = useMemo(() => {
     return [...userHistory]
       .sort((a, b) => b.timestamp - a.timestamp)
@@ -416,7 +480,6 @@ const App: React.FC = () => {
         </AnimatePresence>
       </div>
 
-      {/* Somente renderiza a interface principal se estiver logado */}
       {isLoggedIn && userProfile ? (
         <>
           <div className="absolute inset-0 z-0">
@@ -454,7 +517,9 @@ const App: React.FC = () => {
                 <img src={userProfile.avatar} className="w-8 h-8 rounded-full border border-cyan-500" alt="Avatar" />
                 <div className="flex flex-col items-start min-w-[80px]">
                   <span className="text-[10px] font-black font-orbitron text-cyan-400 uppercase tracking-widest truncate max-w-[120px]">{userProfile.name}</span>
-                  <span className="text-[8px] font-orbitron text-red-500 flex items-center gap-1"><Heart size={8} className="fill-current" /> {userProfile.totalLikes} LIKES</span>
+                  <span className="text-[8px] font-orbitron text-red-500 flex items-center gap-1">
+                    <Heart size={8} className="fill-current" /> {calculatedTotalLikes} LIKES
+                  </span>
                 </div>
               </button>
               <button onClick={() => setIsRankingOpen(true)} className="bg-cyan-500/10 border border-cyan-500/30 px-5 py-2 rounded-full text-cyan-400 font-orbitron font-black text-[9px] flex items-center gap-2 hover:bg-cyan-500/20 transition-all shadow-md">
@@ -476,7 +541,6 @@ const App: React.FC = () => {
           )}
         </>
       ) : (
-        /* Tela de Login (Apenas visível se não autenticado) */
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[9000] bg-black flex flex-col items-center justify-center p-6 text-center">
           <h1 className="text-6xl md:text-8xl font-orbitron font-black tracking-tighter italic glitch-text mb-12" data-text="CRONOESFERA">CRONO<span className="text-cyan-400">ESFERA</span></h1>
           <div className="max-w-xs w-full space-y-6">
@@ -492,7 +556,6 @@ const App: React.FC = () => {
         </motion.div>
       )}
 
-      {/* Modais e Overlays mantidos abaixo (AnimatePresence lida com visibilidade) */}
       <AnimatePresence>
         {isRankingOpen && (
           <motion.div key="ranking-modal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
@@ -530,7 +593,7 @@ const App: React.FC = () => {
                 <div className="flex justify-center gap-8">
                   <div className="text-center">
                     <p className="text-[10px] font-orbitron text-zinc-500 uppercase tracking-widest mb-1">TOTAL DE LIKES</p>
-                    <div className="flex items-center gap-2 justify-center text-red-500"><Heart size={20} className="fill-current" /><span className="text-3xl font-orbitron font-black">{userProfile?.totalLikes || 0}</span></div>
+                    <div className="flex items-center gap-2 justify-center text-red-500"><Heart size={20} className="fill-current" /><span className="text-3xl font-orbitron font-black">{calculatedTotalLikes}</span></div>
                   </div>
                 </div>
               </div>
@@ -582,7 +645,6 @@ const App: React.FC = () => {
           </motion.div>
         )}
 
-        {/* Detalhes do Setor Selecionado */}
         {selectedSlotId !== null && !isPosting && currentSlot && (
           <motion.div key="slot-details-modal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[500] flex items-center justify-center p-4">
              <div onClick={() => setSelectedSlotId(null)} className="absolute inset-0 bg-black/90 backdrop-blur-xl" />
@@ -620,7 +682,6 @@ const App: React.FC = () => {
           </motion.div>
         )}
 
-        {/* Captura de Media e Postagem mantidos conforme original */}
         {isPosting && (
           <motion.div key="posting-modal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[8000] bg-black/95 backdrop-blur-3xl flex items-center justify-center p-4">
             <div className="w-full max-w-2xl bg-zinc-900 border border-white/10 rounded-[3rem] overflow-hidden flex flex-col max-h-[90vh]">
