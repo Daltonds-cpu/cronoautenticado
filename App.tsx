@@ -333,23 +333,19 @@ const App: React.FC = () => {
     const now = Date.now();
     const aiFeedbackPromise = analyzePostImpact(newTitle, userProfile.name);
 
-    const previousSlot = slots.find(s => s.id === selectedSlotId);
-    if (previousSlot && previousSlot.occupantName === userProfile.name) {
-      const durationSec = Math.floor((now - previousSlot.startTime) / 1000);
-      const newHistoryItem: HistoryItem = {
-        id: `${previousSlot.id}-${previousSlot.startTime}`,
-        imageUrl: previousSlot.imageUrl,
-        title: previousSlot.title,
-        finalDurationSeconds: durationSec,
-        timestamp: now
-      };
-      
-      setUserHistory((prev) => {
-        const updatedHistory = [newHistoryItem, ...prev];
-        localStorage.setItem(`crono_history_${auth.currentUser?.uid}`, JSON.stringify(updatedHistory));
-        return updatedHistory;
-      });
-    }
+    const newHistoryItem: HistoryItem = {
+      id: `${selectedSlotId}-${now}`,
+      imageUrl: capturedMedia,
+      title: newTitle.toUpperCase(),
+      finalDurationSeconds: 0,
+      timestamp: now
+    };
+    
+    setUserHistory((prev) => {
+      const updatedHistory = [newHistoryItem, ...prev].slice(0, 50);
+      localStorage.setItem(`crono_history_${auth.currentUser?.uid}`, JSON.stringify(updatedHistory));
+      return updatedHistory;
+    });
     
     setSlots((prev) => prev.map((s) => s.id === selectedSlotId ? { 
       ...s, occupantName: userProfile.name, occupantAvatar: userProfile.avatar, 
@@ -369,9 +365,11 @@ const App: React.FC = () => {
 
   const leaderboard = useMemo(() => [...slots].sort((a, b) => a.startTime - b.startTime).slice(0, 10), [slots]);
   const currentSlot = useMemo(() => slots.find((s) => s.id === selectedSlotId), [slots, selectedSlotId]);
-  const topHistory = useMemo(() => {
+  
+  // Histórico das últimas 5 postagens por ordem cronológica
+  const recentHistory = useMemo(() => {
     return [...userHistory]
-      .sort((a, b) => b.finalDurationSeconds - a.finalDurationSeconds)
+      .sort((a, b) => b.timestamp - a.timestamp)
       .slice(0, 5);
   }, [userHistory]);
 
@@ -452,9 +450,12 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex flex-row sm:flex-col items-center sm:items-end gap-3 pointer-events-auto">
-              <button onClick={() => setIsProfileOpen(true)} className="bg-zinc-900/60 backdrop-blur-xl border border-white/10 p-1.5 pr-4 rounded-full flex items-center gap-3 hover:bg-white/10 transition-all shadow-xl">
+              <button onClick={() => setIsProfileOpen(true)} className="bg-zinc-900/60 backdrop-blur-xl border border-white/10 p-1.5 pr-4 rounded-full flex items-center gap-3 hover:bg-white/10 transition-all shadow-xl group">
                 <img src={userProfile.avatar} className="w-8 h-8 rounded-full border border-cyan-500" alt="Avatar" />
-                <span className="text-[10px] font-black font-orbitron text-cyan-400 uppercase tracking-widest truncate max-w-[120px]">{userProfile.name}</span>
+                <div className="flex flex-col items-start min-w-[80px]">
+                  <span className="text-[10px] font-black font-orbitron text-cyan-400 uppercase tracking-widest truncate max-w-[120px]">{userProfile.name}</span>
+                  <span className="text-[8px] font-orbitron text-red-500 flex items-center gap-1"><Heart size={8} className="fill-current" /> {userProfile.totalLikes} LIKES</span>
+                </div>
               </button>
               <button onClick={() => setIsRankingOpen(true)} className="bg-cyan-500/10 border border-cyan-500/30 px-5 py-2 rounded-full text-cyan-400 font-orbitron font-black text-[9px] flex items-center gap-2 hover:bg-cyan-500/20 transition-all shadow-md">
                 <Trophy size={14} /> <span>LEADERBOARD</span>
@@ -528,12 +529,34 @@ const App: React.FC = () => {
                 <h3 className="text-2xl font-orbitron font-black uppercase mb-6 tracking-tight">{userProfile?.name}</h3>
                 <div className="flex justify-center gap-8">
                   <div className="text-center">
-                    <p className="text-[10px] font-orbitron text-zinc-500 uppercase tracking-widest mb-1">Curtidas</p>
-                    <div className="flex items-center gap-2 justify-center text-red-500"><Heart size={16} className="fill-current" /><span className="text-2xl font-orbitron font-black">{userProfile?.totalLikes || 0}</span></div>
+                    <p className="text-[10px] font-orbitron text-zinc-500 uppercase tracking-widest mb-1">TOTAL DE LIKES</p>
+                    <div className="flex items-center gap-2 justify-center text-red-500"><Heart size={20} className="fill-current" /><span className="text-3xl font-orbitron font-black">{userProfile?.totalLikes || 0}</span></div>
                   </div>
                 </div>
               </div>
-              <button onClick={handleLogout} className="w-full py-5 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-500 font-orbitron font-black text-xs uppercase flex items-center justify-center gap-3 hover:bg-red-500/20 transition-all"><LogOut size={16} /> ENCERRAR SESSÃO</button>
+              
+              <div className="space-y-6">
+                <div>
+                  <h4 className="text-[11px] font-orbitron font-black text-cyan-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2"><Clock size={14} /> ÚLTIMAS 5 ATIVIDADES</h4>
+                  <div className="space-y-3">
+                    {recentHistory.length > 0 ? recentHistory.map((item, idx) => (
+                      <div key={item.id} className="bg-white/5 border border-white/5 rounded-2xl p-3 flex items-center gap-4 group hover:bg-white/10 transition-all">
+                        <div className="w-14 h-14 rounded-xl overflow-hidden border border-white/10 shrink-0"><DynamicMedia src={item.imageUrl} className="w-full h-full object-cover" /></div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] font-orbitron font-black text-cyan-400 uppercase truncate mb-1">{item.title}</p>
+                          <div className="flex items-center gap-2 text-zinc-500"><Clock size={12} /><span className="text-[10px] font-medium">{new Date(item.timestamp).toLocaleDateString()} {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span></div>
+                        </div>
+                        <div className="text-zinc-700 font-orbitron font-black text-lg">#{idx + 1}</div>
+                      </div>
+                    )) : (
+                      <div className="py-8 text-center bg-white/5 border border-dashed border-white/10 rounded-2xl">
+                        <p className="text-[10px] font-orbitron text-zinc-600 uppercase tracking-widest">Nenhuma atividade registrada ainda</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <button onClick={handleLogout} className="w-full py-5 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-500 font-orbitron font-black text-xs uppercase flex items-center justify-center gap-3 hover:bg-red-500/20 transition-all shadow-xl"><LogOut size={16} /> ENCERRAR SESSÃO</button>
+              </div>
             </motion.div>
           </motion.div>
         )}
