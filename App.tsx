@@ -133,7 +133,6 @@ const App: React.FC = () => {
       }
     }, (error) => {
       console.error("Erro no estado de auth:", error);
-      addNotification("Erro na malha de autenticação.");
     });
 
     const savedVisits = localStorage.getItem('crono_visits');
@@ -389,7 +388,7 @@ const App: React.FC = () => {
       {/* Overlay de Introdução */}
       <AnimatePresence>
         {isIntroOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[10000] bg-black/95 flex items-center justify-center p-6 backdrop-blur-xl">
+          <motion.div key="intro-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[10000] bg-black/95 flex items-center justify-center p-6 backdrop-blur-xl">
             <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="w-full max-w-md bg-zinc-900 border border-cyan-500/20 rounded-[2.5rem] p-10 text-center">
               <div className="mb-8 flex justify-center">{introSteps[introStep].icon}</div>
               <h2 className="text-2xl font-orbitron font-black uppercase mb-4 tracking-tighter italic">{introSteps[introStep].title}</h2>
@@ -444,7 +443,10 @@ const App: React.FC = () => {
                 </h1>
                 <p className="text-[8px] font-orbitron text-cyan-500/50 tracking-[0.6em] mt-1 uppercase">Malha Ativa</p>
               </div>
-              <button onClick={() => setIsAboutOpen(true)} className="p-2 bg-white/5 border border-white/10 rounded-full hover:text-cyan-400 transition-all pointer-events-auto shadow-xl">
+              <button 
+                onClick={(e) => { e.stopPropagation(); setIsAboutOpen(true); }} 
+                className="p-2 bg-white/5 border border-white/10 rounded-full hover:text-cyan-400 transition-all pointer-events-auto shadow-xl"
+              >
                 <HelpCircle size={18} />
               </button>
             </div>
@@ -492,7 +494,7 @@ const App: React.FC = () => {
       {/* Modais e Overlays mantidos abaixo (AnimatePresence lida com visibilidade) */}
       <AnimatePresence>
         {isRankingOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
+          <motion.div key="ranking-modal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
             <div onClick={() => setIsRankingOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-xl" />
             <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="relative w-full max-w-lg bg-zinc-950 border border-white/10 rounded-[2rem] p-8 shadow-2xl max-h-[80vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-8">
@@ -517,7 +519,7 @@ const App: React.FC = () => {
         )}
 
         {isProfileOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
+          <motion.div key="profile-modal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
             <div onClick={() => setIsProfileOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-xl" />
             <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="relative w-full max-w-lg bg-zinc-950 border border-white/10 rounded-[2rem] p-8 md:p-10 shadow-2xl overflow-y-auto max-h-[90vh]">
               <button onClick={() => setIsProfileOpen(false)} className="absolute top-6 right-6 p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
@@ -536,10 +538,31 @@ const App: React.FC = () => {
           </motion.div>
         )}
 
+        {isAboutOpen && (
+          <motion.div key="about-modal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[7000] flex items-center justify-center p-4">
+            <div onClick={() => setIsAboutOpen(false)} className="absolute inset-0 bg-black/90 backdrop-blur-md" />
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="relative w-full max-w-md bg-zinc-950 border border-cyan-500/30 rounded-[2.5rem] p-10 text-center shadow-2xl">
+              <h2 className="text-2xl font-orbitron font-black text-white italic uppercase mb-6 tracking-tighter">SOBRE O PROJETO</h2>
+              <p className="text-zinc-400 text-sm leading-relaxed mb-8">CRONO ESFERA é uma arena social experimental onde sua presença física e o tempo são os pilares da sua reputação na malha temporal.</p>
+              <div className="mt-2 pt-6 border-t border-cyan-500/20 mb-10">
+                <p className="text-[10px] font-orbitron text-cyan-500/50 uppercase tracking-[0.3em] mb-4">Pulsações na Rede</p>
+                <div className="flex justify-center gap-2">
+                  {visitCount.toString().padStart(6, '0').split('').map((digit, i) => (
+                    <div key={i} className="w-9 h-12 bg-cyan-500/5 border border-cyan-500/20 rounded-md flex items-center justify-center relative overflow-hidden shadow-inner">
+                      <span className="text-2xl font-orbitron font-black text-cyan-400 drop-shadow-[0_0_8px_rgba(0,229,255,0.8)]">{digit}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <button onClick={() => setIsAboutOpen(false)} className="w-full py-4 bg-cyan-500 text-black rounded-2xl font-orbitron font-black text-[10px] uppercase tracking-widest hover:brightness-110 shadow-lg">RETORNAR À ESFERA</button>
+            </motion.div>
+          </motion.div>
+        )}
+
         {/* Detalhes do Setor Selecionado */}
         {selectedSlotId !== null && !isPosting && currentSlot && (
-          <div className="fixed inset-0 z-[500] flex items-center justify-center p-4">
-             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSelectedSlotId(null)} className="absolute inset-0 bg-black/90 backdrop-blur-xl" />
+          <motion.div key="slot-details-modal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[500] flex items-center justify-center p-4">
+             <div onClick={() => setSelectedSlotId(null)} className="absolute inset-0 bg-black/90 backdrop-blur-xl" />
              <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative w-full max-w-lg bg-zinc-950/50 border border-white/10 rounded-[3rem] overflow-hidden shadow-2xl flex flex-col">
                 <div className="absolute top-4 left-0 right-0 px-6 flex justify-between items-center z-10">
                    <div className="bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10"><span className="text-[9px] font-orbitron font-black text-cyan-400 uppercase tracking-widest">SETOR #{currentSlot.id}</span></div>
@@ -571,12 +594,12 @@ const App: React.FC = () => {
                    )}
                 </div>
              </motion.div>
-          </div>
+          </motion.div>
         )}
 
         {/* Captura de Media e Postagem mantidos conforme original */}
         {isPosting && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[8000] bg-black/95 backdrop-blur-3xl flex items-center justify-center p-4">
+          <motion.div key="posting-modal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[8000] bg-black/95 backdrop-blur-3xl flex items-center justify-center p-4">
             <div className="w-full max-w-2xl bg-zinc-900 border border-white/10 rounded-[3rem] overflow-hidden flex flex-col max-h-[90vh]">
               <div className="p-8 border-b border-white/5 flex justify-between items-center">
                 <button onClick={() => { stopCamera(); setIsPosting(false); }} className="p-2 bg-white/5 rounded-full"><ChevronLeft size={20} /></button>
