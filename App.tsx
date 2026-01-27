@@ -456,6 +456,19 @@ const App: React.FC = () => {
     }
   };
 
+  const handleBackStep = () => {
+    if (postingStep === 'camera') {
+      stopCamera();
+      setPostingStep('mode_select');
+    } else if (postingStep === 'preview') {
+      setCapturedMedia(null);
+      startCamera();
+    } else {
+      stopCamera();
+      setIsPosting(false);
+    }
+  };
+
   const leaderboard = useMemo(() => [...slots].sort((a, b) => a.startTime - b.startTime).slice(0, 10), [slots]);
   const currentSlot = useMemo(() => slots.find((s) => s.id === selectedSlotId), [slots, selectedSlotId]);
   const recentHistory = useMemo(() => [...userHistory].sort((a, b) => b.timestamp - a.timestamp).slice(0, 5), [userHistory]);
@@ -696,7 +709,7 @@ const App: React.FC = () => {
           <motion.div key="posting-modal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[8000] bg-black/95 backdrop-blur-3xl flex items-center justify-center p-4">
             <div className="w-full max-w-2xl bg-zinc-900 border border-white/10 rounded-[3rem] overflow-hidden flex flex-col max-h-[90vh]">
               <div className="p-6 md:p-8 border-b border-white/5 flex justify-between items-center shrink-0">
-                <button onClick={() => { stopCamera(); setIsPosting(false); }} className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors"><ChevronLeft size={20} /></button>
+                <button onClick={handleBackStep} className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors"><ChevronLeft size={20} /></button>
                 <h2 className="text-lg md:text-xl font-orbitron font-black uppercase italic tracking-wider">Módulo de Captura</h2>
                 <div className="w-10" />
               </div>
