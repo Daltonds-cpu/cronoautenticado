@@ -133,19 +133,46 @@ const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
   const framesBuffer = useRef<string[]>([]);
+  const userSubRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user: User | null) => {
+      if (userSubRef.current) {
+        userSubRef.current();
+        userSubRef.current = null;
+      }
+
       if (user) {
-        const profile: UserProfile = {
-          name: user.displayName?.toUpperCase() || 'VIAJANTE DO TEMPO',
-          avatar: user.photoURL || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${user.uid}`,
-          maxTimeSeconds: 0,
-          totalLikes: 0,
-          likedPosts: []
-        };
-        setUserProfile(profile);
-        setIsLoggedIn(true);
+        const userDocRef = doc(db, "users", user.uid);
+        userSubRef.current = onSnapshot(userDocRef, (docSnap) => {
+          const profileData = {
+            name: user.displayName?.toUpperCase() || 'VIAJANTE DO TEMPO',
+            avatar: user.photoURL || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${user.uid}`,
+          };
+
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            setUserProfile({
+              ...profileData,
+              maxTimeSeconds: data.maxTimeSeconds || 0,
+              totalLikes: data.totalLikes || 0,
+              likedPosts: data.likedPosts || []
+            });
+            setIsLoggedIn(true);
+          } else {
+            const initialProfile = {
+              ...profileData,
+              maxTimeSeconds: 0,
+              totalLikes: 0,
+              likedPosts: []
+            };
+            setDoc(userDocRef, initialProfile).then(() => {
+              setUserProfile(initialProfile);
+              setIsLoggedIn(true);
+            });
+          }
+        });
+        
         const savedHistory = localStorage.getItem(`crono_history_${user.uid}`);
         if (savedHistory) setUserHistory(JSON.parse(savedHistory));
       } else {
@@ -175,7 +202,7 @@ const App: React.FC = () => {
       } else {
         setSlots(fetchedSlots.sort((a, b) => a.id - b.id));
         
-        // Rotina de limpeza única para zerar curtidas existentes
+        // Rotina de limpeza única para zerar curtidas existentes nos slots (mantida do histórico anterior)
         const resetDone = localStorage.getItem('crono_likes_reset_v3');
         if (!resetDone && fetchedSlots.length > 0 && auth.currentUser) {
           const batch = writeBatch(db);
@@ -211,16 +238,14 @@ const App: React.FC = () => {
       unsubscribeAuth();
       unsubscribeSlots();
       unsubscribeGlobalStats();
+      if (userSubRef.current) userSubRef.current();
       clearInterval(timer);
     };
   }, []);
 
   const calculatedTotalLikes = useMemo(() => {
-    if (!userProfile) return 0;
-    return slots
-      .filter(s => s.occupantName === userProfile.name)
-      .reduce((acc, s) => acc + s.likes, 0);
-  }, [slots, userProfile]);
+    return userProfile ? userProfile.totalLikes : 0;
+  }, [userProfile]);
 
   useEffect(() => {
     if (postingStep === 'camera' && stream && videoRef.current) {
@@ -275,26 +300,39 @@ const App: React.FC = () => {
   const handleLike = async (id: number, isSimulated: boolean = false) => {
     const slot = slots.find((s) => s.id === id);
     if (!slot) return;
-    if (!isSimulated && userProfile) {
-      const postKey = `${slot.id}-${slot.startTime}`;
-      if (userProfile.likedPosts?.includes(postKey)) {
-        addNotification("Setor já curtido.");
-        return;
-      }
+    
+    if (!userProfile && !isSimulated) return;
+
+    const postKey = `${slot.id}-${slot.startTime}`;
+    if (!isSimulated && userProfile?.likedPosts?.includes(postKey)) {
+      addNotification("Setor já curtido.");
+      return;
     }
+
     try {
+      const batch = writeBatch(db);
+      
+      // 1. Atualiza likes no documento do slot
       const slotRef = doc(db, "slots", id.toString());
-      await updateDoc(slotRef, { likes: increment(1) });
-      if (userProfile && !isSimulated) {
-        const updatedProfile: UserProfile = { 
-          ...userProfile, 
-          likedPosts: [...(userProfile.likedPosts || []), `${slot.id}-${slot.startTime}`] 
-        };
-        setUserProfile(updatedProfile);
+      batch.update(slotRef, { likes: increment(1) });
+      
+      // 2. Se houver um ocupante identificado, atualiza o total acumulado dele no documento de usuário
+      if (slot.occupantId) {
+        const occupantRef = doc(db, "users", slot.occupantId);
+        batch.update(occupantRef, { totalLikes: increment(1) });
+      }
+
+      // 3. Registra que o usuário atual curtiu este post específico (ID do slot + timestamp de início)
+      if (auth.currentUser && !isSimulated) {
+        const currentUserRef = doc(db, "users", auth.currentUser.uid);
+        const updatedLikedPosts = [...(userProfile?.likedPosts || []), postKey];
+        batch.update(currentUserRef, { likedPosts: updatedLikedPosts });
         addNotification("Reconhecimento enviado.");
       }
+
+      await batch.commit();
     } catch (error) {
-      console.error("Erro ao curtir slot:", error);
+      console.error("Erro ao curtir:", error);
     }
   };
 
@@ -438,7 +476,15 @@ const App: React.FC = () => {
     });
     try {
       const slotRef = doc(db, "slots", selectedSlotId.toString());
-      const updatedSlot: Partial<SlotData> = { occupantName: userProfile.name, occupantAvatar: userProfile.avatar, title: newTitle.toUpperCase(), startTime: now, imageUrl: capturedMedia, likes: 0 };
+      const updatedSlot: Partial<SlotData> = { 
+        occupantName: userProfile.name, 
+        occupantAvatar: userProfile.avatar, 
+        occupantId: auth.currentUser.uid,
+        title: newTitle.toUpperCase(), 
+        startTime: now, 
+        imageUrl: capturedMedia, 
+        likes: 0 
+      };
       await updateDoc(slotRef, updatedSlot);
       setIsPosting(false); setPostingStep('mode_select'); setCapturedMedia(null); setNewTitle(''); setSelectedSlotId(null);
       const aiComment = await aiFeedbackPromise;

@@ -3,6 +3,7 @@ export interface SlotData {
   id: number;
   occupantName: string;
   occupantAvatar: string;
+  occupantId?: string; // UID do usuário no Firebase
   title: string;
   imageUrl: string;
   startTime: number; // timestamp
