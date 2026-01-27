@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, Suspense, useRef, useMemo } from 'export React, { useState, useEffect, Suspense, useRef, useMemo } from 'react';
+import React, { useState, useEffect, Suspense, useRef, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { GlobeView } from './components/Globe';
 import { SlotData, UserProfile, HistoryItem, Notification as NotificationType } from './types';
@@ -49,7 +49,6 @@ const formatDuration = (ms: number): string => {
 
 const generateInitialSlots = (): SlotData[] => {
   const slots: SlotData[] = [];
-  // Using direct THREE namespace import to fix "Cannot find namespace" errors
   const baseIco = new THREE.IcosahedronGeometry(GLOBE_RADIUS, 2);
   const positionAttribute = baseIco.getAttribute('position');
   const vertexMap = new Map<string, THREE.Vector3>();
@@ -61,7 +60,6 @@ const generateInitialSlots = (): SlotData[] => {
   }
 
   const points = Array.from(vertexMap.values());
-  // Type annotation using THREE.Vector3 namespace works with import * as THREE
   points.forEach((pos: THREE.Vector3, i: number) => {
     const randomUser = MOCK_USERS[Math.floor(Math.random() * MOCK_USERS.length)];
     slots.push({
@@ -140,16 +138,24 @@ const App: React.FC = () => {
   const userSubRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
+    // Register Service Worker
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch((err) => console.log("SW register failed: ", err));
+      navigator.serviceWorker.register('/sw.js').catch((err) => console.log("SW registration error: ", err));
     }
 
+    // Listen for PWA install prompt event
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
+      console.log('PWA: Ready to install');
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    // Initial check if already installed or in standalone mode
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setDeferredPrompt(null);
+    }
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user: User | null) => {
       if (userSubRef.current) {
@@ -246,11 +252,14 @@ const App: React.FC = () => {
   }, []);
 
   const handleInstallApp = async () => {
-    if (!deferredPrompt) return;
+    if (!deferredPrompt) {
+      addNotification("O App já está na tela inicial.");
+      return;
+    }
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
     if (outcome === 'accepted') {
-      addNotification("Instalando na Malha...");
+      addNotification("Sincronizando com a Malha Local...");
       setDeferredPrompt(null);
     }
   };
@@ -413,7 +422,6 @@ const App: React.FC = () => {
     if (activeFilter === 'poster') ctx.filter = 'contrast(2) saturate(2) brightness(0.9) grayscale(20%)';
     
     ctx.save();
-    
     ctx.scale(-1, 1);
     ctx.translate(-width, 0);
 
@@ -611,21 +619,28 @@ const App: React.FC = () => {
           </header>
 
           <div className="fixed bottom-8 right-8 z-[1000] flex gap-4">
-            {deferredPrompt && (
-              <motion.button 
-                whileHover={{ scale: 1.1 }} 
-                whileTap={{ scale: 0.9 }} 
-                onClick={handleInstallApp} 
-                className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-purple-600 text-white rounded-2xl flex items-center justify-center shadow-2xl border-2 border-white/20 hover:brightness-110 transition-all cursor-pointer"
-              >
-                <Download size={28} />
-              </motion.button>
-            )}
+            <AnimatePresence>
+              {deferredPrompt && (
+                <motion.button 
+                  initial={{ opacity: 0, scale: 0.5, x: 20 }}
+                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                  exit={{ opacity: 0, scale: 0.5, x: 20 }}
+                  whileHover={{ scale: 1.1 }} 
+                  whileTap={{ scale: 0.9 }} 
+                  onClick={handleInstallApp} 
+                  className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-purple-600 text-white rounded-2xl flex items-center justify-center shadow-2xl border-2 border-white/20 hover:brightness-110 transition-all cursor-pointer"
+                  title="Instalar App Android"
+                >
+                  <Download size={28} />
+                </motion.button>
+              )}
+            </AnimatePresence>
             <motion.button 
               whileHover={{ scale: 1.1 }} 
               whileTap={{ scale: 0.9 }} 
               onClick={handleWhatsAppInvite} 
               className="w-14 h-14 bg-[#25D366] text-white rounded-2xl flex items-center justify-center shadow-2xl border-2 border-white/20 hover:brightness-110 transition-all cursor-pointer"
+              title="Compartilhar"
             >
               <MessageCircle size={28} />
             </motion.button>
