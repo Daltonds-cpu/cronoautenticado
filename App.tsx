@@ -69,7 +69,7 @@ const generateInitialSlots = (): SlotData[] => {
       title: "SETOR ATIVO",
       imageUrl: `https://picsum.photos/seed/crono${i + 9000}/800/800`,
       startTime: Date.now() - Math.floor(Math.random() * 8000000),
-      likes: Math.floor(Math.random() * 50),
+      likes: 0,
       position: [pos.x, pos.y, pos.z],
       sides: (i % 7 === 0) ? 5 : 6
     });
@@ -174,6 +174,20 @@ const App: React.FC = () => {
         }
       } else {
         setSlots(fetchedSlots.sort((a, b) => a.id - b.id));
+        
+        // Rotina de limpeza única para zerar curtidas existentes
+        const resetDone = localStorage.getItem('crono_likes_reset_v3');
+        if (!resetDone && fetchedSlots.length > 0 && auth.currentUser) {
+          const batch = writeBatch(db);
+          fetchedSlots.forEach(slot => {
+            const docRef = doc(db, "slots", slot.id.toString());
+            batch.update(docRef, { likes: 0 });
+          });
+          batch.commit().then(() => {
+            localStorage.setItem('crono_likes_reset_v3', 'true');
+            console.log("Likes reset protocol complete.");
+          });
+        }
       }
     });
 
@@ -207,18 +221,6 @@ const App: React.FC = () => {
       .filter(s => s.occupantName === userProfile.name)
       .reduce((acc, s) => acc + s.likes, 0);
   }, [slots, userProfile]);
-
-  useEffect(() => {
-    if (!isLoggedIn || !userProfile) return;
-    const organicLikeInterval = setInterval(() => {
-      const userSlots = slots.filter(s => s.occupantName === userProfile.name);
-      if (userSlots.length > 0 && Math.random() > 0.8) {
-        const randomSlot = userSlots[Math.floor(Math.random() * userSlots.length)];
-        handleLike(randomSlot.id, true);
-      }
-    }, 15000);
-    return () => clearInterval(organicLikeInterval);
-  }, [isLoggedIn, userProfile, slots]);
 
   useEffect(() => {
     if (postingStep === 'camera' && stream && videoRef.current) {
@@ -321,7 +323,6 @@ const App: React.FC = () => {
     if (stream) {
       stream.getTracks().forEach((t) => t.stop());
     }
-    // CORREÇÃO: Limpa explicitamente o srcObject para evitar tela preta em reaberturas
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
@@ -330,7 +331,6 @@ const App: React.FC = () => {
   };
 
   const processFrame = () => {
-    // CORREÇÃO: Não interrompe o loop se as refs forem nulas momentaneamente (comum durante montagem/transição)
     if (postingStep !== 'camera') return;
 
     if (!videoRef.current || !canvasRef.current) {
@@ -338,13 +338,11 @@ const App: React.FC = () => {
       return;
     }
     
-    // CORREÇÃO: Reforça a conexão do stream caso o elemento de vídeo tenha sido recriado
     if (stream && videoRef.current.srcObject !== stream) {
       videoRef.current.srcObject = stream;
       videoRef.current.play().catch(() => {});
     }
 
-    // Aguarda o vídeo estar pronto (data carregada) antes de tentar desenhar
     if (videoRef.current.readyState < 2) {
       requestRef.current = requestAnimationFrame(processFrame);
       return;
@@ -356,7 +354,6 @@ const App: React.FC = () => {
     const { width, height } = canvasRef.current;
     ctx.clearRect(0, 0, width, height);
     
-    // Configurações de filtros baseados no activeFilter
     ctx.filter = 'none';
     if (activeFilter === 'noir') ctx.filter = 'grayscale(100%) contrast(1.4)';
     if (activeFilter === 'neon') ctx.filter = 'brightness(1.5) saturate(2.5) contrast(1.1) hue-rotate(180deg)';
@@ -366,11 +363,9 @@ const App: React.FC = () => {
     
     ctx.save();
     
-    // Espelhamento padrão (Selfie)
     ctx.scale(-1, 1);
     ctx.translate(-width, 0);
 
-    // Efeitos de Distorção/Composição
     if (activeFilter === 'mirror_h') {
       ctx.drawImage(videoRef.current, 0, 0, width / 2, height, 0, 0, width / 2, height);
       ctx.save();
