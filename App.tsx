@@ -330,9 +330,21 @@ const App: React.FC = () => {
   };
 
   const processFrame = () => {
-    if (!videoRef.current || !canvasRef.current || postingStep !== 'camera') return;
+    // CORREÇÃO: Não interrompe o loop se as refs forem nulas momentaneamente (comum durante montagem/transição)
+    if (postingStep !== 'camera') return;
+
+    if (!videoRef.current || !canvasRef.current) {
+      requestRef.current = requestAnimationFrame(processFrame);
+      return;
+    }
     
-    // CORREÇÃO: Aguarda o vídeo estar pronto (data carregada) antes de tentar desenhar
+    // CORREÇÃO: Reforça a conexão do stream caso o elemento de vídeo tenha sido recriado
+    if (stream && videoRef.current.srcObject !== stream) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(() => {});
+    }
+
+    // Aguarda o vídeo estar pronto (data carregada) antes de tentar desenhar
     if (videoRef.current.readyState < 2) {
       requestRef.current = requestAnimationFrame(processFrame);
       return;
