@@ -665,7 +665,7 @@ const App: React.FC = () => {
 
         {selectedSlotId !== null && !isPosting && currentSlot && (
           <motion.div key="slot-details-modal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[500] flex items-center justify-center p-4">
-             <div onClick={() => setSelectedSlotId(null)} className="absolute inset-0 bg-black/90 backdrop-blur-xl" />
+             <div onClick={() => setSelectedSlotId(null)} className="absolute inset-0 bg-black/90" />
              <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative w-full max-w-lg bg-zinc-950/50 border border-white/10 rounded-[3rem] overflow-hidden shadow-2xl flex flex-col">
                 <div className="absolute top-4 left-0 right-0 px-6 flex justify-between items-center z-10">
                    <div className="bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10"><span className="text-[9px] font-orbitron font-black text-cyan-400 uppercase tracking-widest">SETOR #{currentSlot.id}</span></div>
