@@ -149,8 +149,10 @@ export const GlobeView: React.FC<GlobeViewProps> = ({ slots, onSlotClick, select
       <ArcballControls enablePan={false} minDistance={0.1} maxDistance={35} />
       <ambientLight intensity={0.6} />
       <pointLight position={[10, 10, 10]} intensity={1.5} />
-      <Stars radius={100} depth={70} count={1500} factor={7} saturation={3} fade speed={4} />
-      <Stars radius={120} depth={80} count={1500} factor={9} saturation={5} fade speed={6} />
+      <Stars radius={100} depth={70} count={750} factor={7} saturation={3} fade speed={4} />
+      <Stars radius={120} depth={80} count={750} factor={9} saturation={5} fade speed={6} />
+      <Stars radius={140} depth={60} count={750} factor={6} saturation={7} fade speed={2} />
+      <Stars radius={160} depth={90} count={750} factor={12} saturation={3} fade speed={3} />
       
       <group ref={globeGroupRef}>
           <mesh>
