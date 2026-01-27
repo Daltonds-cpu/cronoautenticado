@@ -25,7 +25,10 @@ import {
   writeBatch, 
   increment 
 } from './services/firebase';
-import * as THREE from 'three';
+import * as THREE from 'this-is-fine'; // Three is already imported below, fixing the alias if needed but using the standard import.
+import * as THREE_LIB from 'three';
+
+const THREE = THREE_LIB;
 
 const CAMERA_FILTERS = [
   { id: 'none', name: 'NORMAL', icon: <RefreshCcw size={16} /> },
@@ -66,6 +69,7 @@ const generateInitialSlots = (): SlotData[] => {
       id: i,
       occupantName: randomUser.name,
       occupantAvatar: randomUser.avatar,
+      occupantId: `mock_user_${i % 5}`, // Adicionando ID fixo para mock users
       title: "SETOR ATIVO",
       imageUrl: `https://picsum.photos/seed/crono${i + 9000}/800/800`,
       startTime: Date.now() - Math.floor(Math.random() * 8000000),
@@ -201,20 +205,6 @@ const App: React.FC = () => {
         }
       } else {
         setSlots(fetchedSlots.sort((a, b) => a.id - b.id));
-        
-        // Rotina de limpeza única para zerar curtidas existentes nos slots (mantida do histórico anterior)
-        const resetDone = localStorage.getItem('crono_likes_reset_v3');
-        if (!resetDone && fetchedSlots.length > 0 && auth.currentUser) {
-          const batch = writeBatch(db);
-          fetchedSlots.forEach(slot => {
-            const docRef = doc(db, "slots", slot.id.toString());
-            batch.update(docRef, { likes: 0 });
-          });
-          batch.commit().then(() => {
-            localStorage.setItem('crono_likes_reset_v3', 'true');
-            console.log("Likes reset protocol complete.");
-          });
-        }
       }
     });
 
@@ -301,11 +291,14 @@ const App: React.FC = () => {
     const slot = slots.find((s) => s.id === id);
     if (!slot) return;
     
-    if (!userProfile && !isSimulated) return;
+    if (!userProfile && !isSimulated) {
+      addNotification("Faça login para curtir.");
+      return;
+    }
 
     const postKey = `${slot.id}-${slot.startTime}`;
     if (!isSimulated && userProfile?.likedPosts?.includes(postKey)) {
-      addNotification("Setor já curtido.");
+      addNotification("Este registro já foi reconhecido.");
       return;
     }
 
@@ -316,23 +309,25 @@ const App: React.FC = () => {
       const slotRef = doc(db, "slots", id.toString());
       batch.update(slotRef, { likes: increment(1) });
       
-      // 2. Se houver um ocupante identificado, atualiza o total acumulado dele no documento de usuário
+      // 2. Se houver um ocupante identificado, atualiza o total acumulado dele
       if (slot.occupantId) {
         const occupantRef = doc(db, "users", slot.occupantId);
-        batch.update(occupantRef, { totalLikes: increment(1) });
+        // Usando set com merge para garantir que o doc exista
+        batch.set(occupantRef, { totalLikes: increment(1) }, { merge: true });
       }
 
-      // 3. Registra que o usuário atual curtiu este post específico (ID do slot + timestamp de início)
+      // 3. Registra que o usuário atual curtiu este post
       if (auth.currentUser && !isSimulated) {
         const currentUserRef = doc(db, "users", auth.currentUser.uid);
         const updatedLikedPosts = [...(userProfile?.likedPosts || []), postKey];
-        batch.update(currentUserRef, { likedPosts: updatedLikedPosts });
-        addNotification("Reconhecimento enviado.");
+        batch.set(currentUserRef, { likedPosts: updatedLikedPosts }, { merge: true });
+        addNotification("Reconhecimento enviado com sucesso.");
       }
 
       await batch.commit();
     } catch (error) {
-      console.error("Erro ao curtir:", error);
+      console.error("Erro crítico na operação de Like:", error);
+      addNotification("Erro na sincronização de reconhecimento.");
     }
   };
 
@@ -731,16 +726,22 @@ const App: React.FC = () => {
                          </div>
                       </div>
                       <div className="text-right shrink-0">
-                         <p className="text-[9px] font-orbitron text-zinc-500 font-bold uppercase tracking-widest mb-1">Permanência</p>
-                         <div className="flex items-center gap-2 justify-end text-cyan-400"><Clock size={14} /><span className="text-lg font-orbitron font-black tracking-tighter">{formatDuration(currentTime - currentSlot.startTime)}</span></div>
+                         <p className="text-[9px] font-orbitron text-zinc-500 font-bold uppercase tracking-widest mb-1">Reconhecimentos</p>
+                         <div className="flex items-center gap-2 justify-end text-red-500"><Heart size={14} className="fill-current" /><span className="text-lg font-orbitron font-black tracking-tighter">{currentSlot.likes || 0}</span></div>
                       </div>
                    </div>
                    <div className="flex gap-3">
-                      <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => handleLike(currentSlot.id)} className="flex-1 py-4 bg-white/5 border border-white/10 rounded-2xl font-orbitron font-black text-xs flex items-center justify-center gap-3 hover:bg-white/10 transition-all uppercase tracking-widest"><Heart size={18} className="text-red-500" /> CURTIR</motion.button>
+                      <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => handleLike(currentSlot.id)} className="flex-1 py-4 bg-white/5 border border-white/10 rounded-2xl font-orbitron font-black text-xs flex items-center justify-center gap-3 hover:bg-white/10 transition-all uppercase tracking-widest"><Heart size={18} className="text-red-500" /> CURTIR REGISTRO</motion.button>
                    </div>
-                   {currentSlot.occupantName !== userProfile?.name && (
-                      <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setIsPosting(true)} className="w-full py-5 bg-cyan-500 text-black rounded-2xl font-orbitron font-black text-xs uppercase tracking-[0.2em] hover:bg-cyan-400 transition-all flex items-center justify-center gap-3"><Maximize2 size={18} /> REIVINDICAR ESTE ESPAÇO</motion.button>
-                   )}
+                   <div className="pt-2 border-t border-white/5">
+                      <div className="flex justify-between items-center mb-4">
+                          <p className="text-[9px] font-orbitron text-zinc-500 font-bold uppercase tracking-widest">Permanência Atual</p>
+                          <div className="flex items-center gap-2 text-cyan-400"><Clock size={14} /><span className="text-lg font-orbitron font-black tracking-tighter">{formatDuration(currentTime - currentSlot.startTime)}</span></div>
+                      </div>
+                      {currentSlot.occupantName !== userProfile?.name && (
+                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setIsPosting(true)} className="w-full py-5 bg-cyan-500 text-black rounded-2xl font-orbitron font-black text-xs uppercase tracking-[0.2em] hover:bg-cyan-400 transition-all flex items-center justify-center gap-3"><Maximize2 size={18} /> REIVINDICAR ESTE ESPAÇO</motion.button>
+                      )}
+                   </div>
                 </div>
              </motion.div>
           </motion.div>
