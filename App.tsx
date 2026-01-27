@@ -1,10 +1,10 @@
 
-import React, { useState, useEffect, Suspense, useRef, useMemo } from 'react';
+import React, { useState, useEffect, Suspense, useRef, useMemo } from 'export React, { useState, useEffect, Suspense, useRef, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { GlobeView } from './components/Globe';
 import { SlotData, UserProfile, HistoryItem, Notification as NotificationType } from './types';
 import { GLOBE_RADIUS, MOCK_USERS } from './constants';
-import { Trophy, Camera, X, Clock, Heart, Bell, ChevronLeft, Loader2, Repeat, LogOut, Users, HelpCircle, MessageCircle, Maximize2, Zap, Target, ShieldCheck, Sparkles, Award, Wand2, RefreshCcw } from 'lucide-react';
+import { Trophy, Camera, X, Clock, Heart, Bell, ChevronLeft, Loader2, Repeat, LogOut, Users, HelpCircle, MessageCircle, Maximize2, Zap, Target, ShieldCheck, Sparkles, Award, Wand2, RefreshCcw, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { analyzePostImpact } from './services/geminiService';
 import { 
@@ -25,10 +25,7 @@ import {
   writeBatch, 
   increment 
 } from './services/firebase';
-import * as THREE from 'this-is-fine'; // Three is already imported below, fixing the alias if needed but using the standard import.
-import * as THREE_LIB from 'three';
-
-const THREE = THREE_LIB;
+import * as THREE from 'three';
 
 const CAMERA_FILTERS = [
   { id: 'none', name: 'NORMAL', icon: <RefreshCcw size={16} /> },
@@ -52,6 +49,7 @@ const formatDuration = (ms: number): string => {
 
 const generateInitialSlots = (): SlotData[] => {
   const slots: SlotData[] = [];
+  // Using direct THREE namespace import to fix "Cannot find namespace" errors
   const baseIco = new THREE.IcosahedronGeometry(GLOBE_RADIUS, 2);
   const positionAttribute = baseIco.getAttribute('position');
   const vertexMap = new Map<string, THREE.Vector3>();
@@ -63,13 +61,14 @@ const generateInitialSlots = (): SlotData[] => {
   }
 
   const points = Array.from(vertexMap.values());
+  // Type annotation using THREE.Vector3 namespace works with import * as THREE
   points.forEach((pos: THREE.Vector3, i: number) => {
     const randomUser = MOCK_USERS[Math.floor(Math.random() * MOCK_USERS.length)];
     slots.push({
       id: i,
       occupantName: randomUser.name,
       occupantAvatar: randomUser.avatar,
-      occupantId: `mock_user_${i % 5}`, // Adicionando ID fixo para mock users
+      occupantId: `mock_user_${i % 5}`,
       title: "SETOR ATIVO",
       imageUrl: `https://picsum.photos/seed/crono${i + 9000}/800/800`,
       startTime: Date.now() - Math.floor(Math.random() * 8000000),
@@ -132,6 +131,7 @@ const App: React.FC = () => {
   const [visitCount, setVisitCount] = useState<number>(0);
   const [introStep, setIntroStep] = useState<number>(0);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -140,6 +140,17 @@ const App: React.FC = () => {
   const userSubRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch((err) => console.log("SW register failed: ", err));
+    }
+
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
     const unsubscribeAuth = onAuthStateChanged(auth, (user: User | null) => {
       if (userSubRef.current) {
         userSubRef.current();
@@ -225,6 +236,7 @@ const App: React.FC = () => {
     const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
     
     return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       unsubscribeAuth();
       unsubscribeSlots();
       unsubscribeGlobalStats();
@@ -232,6 +244,16 @@ const App: React.FC = () => {
       clearInterval(timer);
     };
   }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      addNotification("Instalando na Malha...");
+      setDeferredPrompt(null);
+    }
+  };
 
   const calculatedTotalLikes = useMemo(() => {
     return userProfile ? userProfile.totalLikes : 0;
@@ -305,18 +327,14 @@ const App: React.FC = () => {
     try {
       const batch = writeBatch(db);
       
-      // 1. Atualiza likes no documento do slot
       const slotRef = doc(db, "slots", id.toString());
       batch.update(slotRef, { likes: increment(1) });
       
-      // 2. Se houver um ocupante identificado, atualiza o total acumulado dele
       if (slot.occupantId) {
         const occupantRef = doc(db, "users", slot.occupantId);
-        // Usando set com merge para garantir que o doc exista
         batch.set(occupantRef, { totalLikes: increment(1) }, { merge: true });
       }
 
-      // 3. Registra que o usuário atual curtiu este post
       if (auth.currentUser && !isSimulated) {
         const currentUserRef = doc(db, "users", auth.currentUser.uid);
         const updatedLikedPosts = [...(userProfile?.likedPosts || []), postKey];
@@ -592,8 +610,23 @@ const App: React.FC = () => {
             </div>
           </header>
 
-          <div className="fixed bottom-8 right-8 z-[1000]">
-            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={handleWhatsAppInvite} className="w-14 h-14 bg-[#25D366] text-white rounded-2xl flex items-center justify-center shadow-2xl border-2 border-white/20 hover:brightness-110 transition-all cursor-pointer">
+          <div className="fixed bottom-8 right-8 z-[1000] flex gap-4">
+            {deferredPrompt && (
+              <motion.button 
+                whileHover={{ scale: 1.1 }} 
+                whileTap={{ scale: 0.9 }} 
+                onClick={handleInstallApp} 
+                className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-purple-600 text-white rounded-2xl flex items-center justify-center shadow-2xl border-2 border-white/20 hover:brightness-110 transition-all cursor-pointer"
+              >
+                <Download size={28} />
+              </motion.button>
+            )}
+            <motion.button 
+              whileHover={{ scale: 1.1 }} 
+              whileTap={{ scale: 0.9 }} 
+              onClick={handleWhatsAppInvite} 
+              className="w-14 h-14 bg-[#25D366] text-white rounded-2xl flex items-center justify-center shadow-2xl border-2 border-white/20 hover:brightness-110 transition-all cursor-pointer"
+            >
               <MessageCircle size={28} />
             </motion.button>
           </div>
