@@ -321,12 +321,23 @@ const App: React.FC = () => {
     if (stream) {
       stream.getTracks().forEach((t) => t.stop());
     }
+    // CORREÇÃO: Limpa explicitamente o srcObject para evitar tela preta em reaberturas
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setStream(null);
     cancelAnimationFrame(requestRef.current);
   };
 
   const processFrame = () => {
     if (!videoRef.current || !canvasRef.current || postingStep !== 'camera') return;
+    
+    // CORREÇÃO: Aguarda o vídeo estar pronto (data carregada) antes de tentar desenhar
+    if (videoRef.current.readyState < 2) {
+      requestRef.current = requestAnimationFrame(processFrame);
+      return;
+    }
+
     const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
     
@@ -374,7 +385,7 @@ const App: React.FC = () => {
   };
 
   useEffect(() => { 
-    if (postingStep === 'camera') {
+    if (postingStep === 'camera' && stream) {
       processFrame(); 
     }
     return () => cancelAnimationFrame(requestRef.current);
