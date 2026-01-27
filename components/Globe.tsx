@@ -153,6 +153,7 @@ export const GlobeView: React.FC<GlobeViewProps> = ({ slots, onSlotClick, select
       <Stars radius={120} depth={80} count={750} factor={9} saturation={5} fade speed={6} />
       <Stars radius={140} depth={60} count={750} factor={6} saturation={7} fade speed={2} />
       <Stars radius={160} depth={90} count={750} factor={12} saturation={3} fade speed={3} />
+      <Stars radius={80} depth={50} count={900} factor={5} saturation={1} fade speed={1} />
       
       <group ref={globeGroupRef}>
           <mesh>
