@@ -87,11 +87,15 @@ const generateInitialSlots = (): SlotData[] => {
   return slots;
 };
 
-const DynamicMedia: React.FC<{ src: string; className?: string }> = ({ src, className }) => {
+const DynamicMedia: React.FC<{ src: string | null; className?: string }> = ({ src, className }) => {
   const [frames, setFrames] = useState<string[]>([]);
   const [currentFrame, setCurrentFrame] = useState<number>(0);
 
   useEffect(() => {
+    if (!src) {
+      setFrames([]);
+      return;
+    }
     if (src.startsWith('LOOP:')) {
       try { 
         const parsed = JSON.parse(src.replace('LOOP:', ''));
@@ -108,6 +112,7 @@ const DynamicMedia: React.FC<{ src: string; className?: string }> = ({ src, clas
     }
   }, [frames]);
 
+  if (!src) return null;
   return <img src={frames[currentFrame] || ''} className={className} alt="Crono Media" />;
 };
 
@@ -605,11 +610,14 @@ const App: React.FC = () => {
       setFacingMode('user');
       setPostingStep('mode_select');
     } else if (postingStep === 'preview') {
-      // Limpar a mídia capturada ANTES de tentar abrir a câmera novamente
-      setCapturedMedia(null);
-      // Aqui o stopCamera já foi chamado no handleCapture,
-      // então garantimos que o estado do stream está limpo antes de reiniciar.
-      startCamera(facingMode);
+      // Sincroniza a transição de estado para evitar erro branco no DynamicMedia
+      stopCamera(); 
+      setCapturedMedia(null); 
+      setPostingStep('camera');
+      // Pequeno delay para garantir que o hardware foi liberado pelo navegador
+      setTimeout(() => {
+        startCamera(facingMode);
+      }, 50);
     } else {
       stopCamera();
       setFacingMode('user');
@@ -955,7 +963,7 @@ const App: React.FC = () => {
                 {postingStep === 'preview' && (
                   <div className="space-y-8">
                     <div className="flex flex-col md:flex-row gap-8 items-center bg-white/5 p-6 rounded-[2.5rem] border border-white/5">
-                      <div className="w-48 h-48 rounded-[2rem] overflow-hidden border border-cyan-500/30 shrink-0 shadow-2xl"><DynamicMedia src={capturedMedia!} className="w-full h-full object-cover" /></div>
+                      <div className="w-48 h-48 rounded-[2rem] overflow-hidden border border-cyan-500/30 shrink-0 shadow-2xl"><DynamicMedia src={capturedMedia} className="w-full h-full object-cover" /></div>
                       <div className="flex-1 w-full space-y-6">
                         <div className="space-y-2">
                            <p className="text-[10px] font-orbitron font-black text-cyan-500 uppercase tracking-widest">Título do Legado</p>
