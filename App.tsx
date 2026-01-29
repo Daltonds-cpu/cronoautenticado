@@ -148,20 +148,20 @@ const App: React.FC = () => {
   const framesBuffer = useRef<string[]>([]);
   const userSubRef = useRef<(() => void) | null>(null);
 
-  // Callback ref to handle video element mounting and stream assignment
+  // Callback ref para garantir que o srcObject seja atribuído sempre que o vídeo for montado
   const setVideoRef = useCallback((node: HTMLVideoElement | null) => {
     if (node) {
       (videoRef as any).current = node;
       if (stream) {
         node.srcObject = stream;
-        node.play().catch(e => console.error("Video play error on mount:", e));
+        node.play().catch(e => console.error("Erro ao iniciar playback no vídeo montado:", e));
       }
     }
   }, [stream]);
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch((err) => console.log("SW registration error: ", err));
+      navigator.serviceWorker.register('/sw.js').catch((err) => console.log("Erro no registro do SW: ", err));
     }
 
     const handleBeforeInstallPrompt = (e: any) => {
@@ -289,15 +289,6 @@ const App: React.FC = () => {
     return userProfile ? userProfile.totalLikes : 0;
   }, [userProfile]);
 
-  useEffect(() => {
-    if (postingStep === 'camera' && stream && videoRef.current) {
-      if (videoRef.current.srcObject !== stream) {
-        videoRef.current.srcObject = stream;
-      }
-      videoRef.current.play().catch(e => console.error("Camera playback error:", e));
-    }
-  }, [postingStep, stream]);
-
   const handleCloseIntro = () => {
     localStorage.setItem('crono_intro_seen', 'true');
     setIsIntroOpen(false);
@@ -381,22 +372,36 @@ const App: React.FC = () => {
     }
   };
 
+  const stopCamera = useCallback(() => {
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop());
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setStream(null);
+    cancelAnimationFrame(requestRef.current);
+  }, [stream]);
+
   const startCamera = async (mode: 'user' | 'environment' = 'user') => {
     setIsCameraLoading(true);
     try {
+      // Parar stream anterior antes de pedir um novo para evitar conflitos de hardware
       if (stream) {
         stream.getTracks().forEach((t) => t.stop());
       }
+      
       const newStream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: mode, width: 480, height: 480 }, 
+        video: { facingMode: mode, width: { ideal: 480 }, height: { ideal: 480 } }, 
         audio: false 
       });
+      
       setStream(newStream);
       setPostingStep('camera');
       setActiveFilter('none');
     } catch (err) { 
-      addNotification("Câmera bloqueada."); 
-      console.error(err);
+      addNotification("Acesso à câmera negado."); 
+      console.error("Erro startCamera:", err);
     } finally { 
       setIsCameraLoading(false); 
     }
@@ -408,29 +413,12 @@ const App: React.FC = () => {
     startCamera(nextMode);
   };
 
-  const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach((t) => t.stop());
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    setStream(null);
-    cancelAnimationFrame(requestRef.current);
-  };
-
-  const processFrame = () => {
-    if (postingStep !== 'camera') return;
+  const processFrame = useCallback(() => {
+    if (postingStep !== 'camera' || !stream) return;
 
     if (!videoRef.current || !canvasRef.current) {
       requestRef.current = requestAnimationFrame(processFrame);
       return;
-    }
-    
-    // Safety check for stream attachment
-    if (stream && videoRef.current.srcObject !== stream) {
-      videoRef.current.srcObject = stream;
-      videoRef.current.play().catch(() => {});
     }
 
     if (videoRef.current.readyState < 2) {
@@ -444,11 +432,9 @@ const App: React.FC = () => {
     const { width, height } = canvasRef.current;
     ctx.clearRect(0, 0, width, height);
     ctx.imageSmoothingEnabled = true;
-
-    // Reset Filter
     ctx.filter = 'none';
 
-    // Apply Filter Logic
+    // Filtros
     if (activeFilter === 'noir') ctx.filter = 'grayscale(100%) contrast(1.4)';
     if (activeFilter === 'neon') ctx.filter = 'brightness(1.5) saturate(2.5) contrast(1.1) hue-rotate(180deg)';
     if (activeFilter === 'invert') ctx.filter = 'invert(100%)';
@@ -462,7 +448,7 @@ const App: React.FC = () => {
 
     ctx.save();
     
-    // Selfie mode flipping (only for user camera)
+    // Selfie flipping
     if (facingMode === 'user') {
       ctx.scale(-1, 1);
       ctx.translate(-width, 0);
@@ -518,14 +504,11 @@ const App: React.FC = () => {
 
     ctx.restore();
 
-    // Overlays
     if (activeFilter === 'vhs') {
-      // Scanlines
       ctx.fillStyle = 'rgba(18, 16, 16, 0.1)';
       for (let i = 0; i < height; i += 4) {
         ctx.fillRect(0, i, width, 1);
       }
-      // Noise
       const imageData = ctx.getImageData(0, 0, width, height);
       const data = imageData.data;
       for (let i = 0; i < data.length; i += 4) {
@@ -538,19 +521,20 @@ const App: React.FC = () => {
     }
     
     requestRef.current = requestAnimationFrame(processFrame);
-  };
+  }, [postingStep, activeFilter, stream, facingMode]);
 
   useEffect(() => { 
     if (postingStep === 'camera' && stream) {
       processFrame(); 
     }
     return () => cancelAnimationFrame(requestRef.current);
-  }, [postingStep, activeFilter, stream, facingMode]);
+  }, [postingStep, stream, processFrame]);
 
   const handleCapture = () => {
     if (!canvasRef.current) return;
     if (captureMode === 'photo') {
-      setCapturedMedia(canvasRef.current.toDataURL('image/jpeg', 0.8));
+      const data = canvasRef.current.toDataURL('image/jpeg', 0.8);
+      setCapturedMedia(data);
       stopCamera(); 
       setPostingStep('preview');
     } else {
@@ -580,11 +564,13 @@ const App: React.FC = () => {
     const now = Date.now();
     const aiFeedbackPromise = analyzePostImpact(newTitle, userProfile.name);
     const newHistoryItem: HistoryItem = { id: `${selectedSlotId}-${now}`, imageUrl: capturedMedia, title: newTitle.toUpperCase(), finalDurationSeconds: 0, timestamp: now };
+    
     setUserHistory((prev) => {
       const updatedHistory = [newHistoryItem, ...prev].slice(0, 50);
       localStorage.setItem(`crono_history_${auth.currentUser?.uid}`, JSON.stringify(updatedHistory));
       return updatedHistory;
     });
+
     try {
       const slotRef = doc(db, "slots", selectedSlotId.toString());
       const updatedSlot: Partial<SlotData> = { 
@@ -597,33 +583,36 @@ const App: React.FC = () => {
         likes: 0 
       };
       await updateDoc(slotRef, updatedSlot);
-      setIsPosting(false); setPostingStep('mode_select'); setCapturedMedia(null); setNewTitle(''); setSelectedSlotId(null);
-      setFacingMode('user'); // Reset to front camera for next time
+      setIsPosting(false); 
+      setPostingStep('mode_select'); 
+      setCapturedMedia(null); 
+      setNewTitle(''); 
+      setSelectedSlotId(null);
+      setFacingMode('user');
       const aiComment = await aiFeedbackPromise;
       setIsAnalyzing(false);
       addNotification(`IA: "${aiComment}"`);
     } catch (error) {
       console.error("Erro ao publicar:", error);
       setIsAnalyzing(false);
-      addNotification("Erro na malha temporal.");
+      addNotification("Erro na sincronização.");
     }
   };
 
   const handleBackStep = () => {
     if (postingStep === 'camera') {
       stopCamera();
-      setFacingMode('user'); // Reset to front camera
+      setFacingMode('user');
       setPostingStep('mode_select');
     } else if (postingStep === 'preview') {
+      // Limpar a mídia capturada ANTES de tentar abrir a câmera novamente
       setCapturedMedia(null);
-      // Ensure we clear any old stream before starting a new one
-      stopCamera(); 
-      setTimeout(() => {
-        startCamera(facingMode);
-      }, 50);
+      // Aqui o stopCamera já foi chamado no handleCapture,
+      // então garantimos que o estado do stream está limpo antes de reiniciar.
+      startCamera(facingMode);
     } else {
       stopCamera();
-      setFacingMode('user'); // Reset to front camera
+      setFacingMode('user');
       setIsPosting(false);
     }
   };
