@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, Suspense, useRef, useMemo } from 'react';
+import React, { useState, useEffect, Suspense, useRef, useMemo, useCallback } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { GlobeView } from './components/Globe';
 import { SlotData, UserProfile, HistoryItem, Notification as NotificationType } from './types';
@@ -148,6 +148,17 @@ const App: React.FC = () => {
   const framesBuffer = useRef<string[]>([]);
   const userSubRef = useRef<(() => void) | null>(null);
 
+  // Callback ref to handle video element mounting and stream assignment
+  const setVideoRef = useCallback((node: HTMLVideoElement | null) => {
+    if (node) {
+      (videoRef as any).current = node;
+      if (stream) {
+        node.srcObject = stream;
+        node.play().catch(e => console.error("Video play error on mount:", e));
+      }
+    }
+  }, [stream]);
+
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch((err) => console.log("SW registration error: ", err));
@@ -280,8 +291,10 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (postingStep === 'camera' && stream && videoRef.current) {
-      videoRef.current.srcObject = stream;
-      videoRef.current.play().catch(e => console.error("Camera error:", e));
+      if (videoRef.current.srcObject !== stream) {
+        videoRef.current.srcObject = stream;
+      }
+      videoRef.current.play().catch(e => console.error("Camera playback error:", e));
     }
   }, [postingStep, stream]);
 
@@ -414,6 +427,7 @@ const App: React.FC = () => {
       return;
     }
     
+    // Safety check for stream attachment
     if (stream && videoRef.current.srcObject !== stream) {
       videoRef.current.srcObject = stream;
       videoRef.current.play().catch(() => {});
@@ -602,7 +616,11 @@ const App: React.FC = () => {
       setPostingStep('mode_select');
     } else if (postingStep === 'preview') {
       setCapturedMedia(null);
-      startCamera(facingMode);
+      // Ensure we clear any old stream before starting a new one
+      stopCamera(); 
+      setTimeout(() => {
+        startCamera(facingMode);
+      }, 50);
     } else {
       stopCamera();
       setFacingMode('user'); // Reset to front camera
@@ -897,7 +915,7 @@ const App: React.FC = () => {
                 {postingStep === 'camera' && (
                   <div className="space-y-8 flex flex-col items-center">
                     <div className="relative aspect-square w-full max-w-sm rounded-[2.5rem] overflow-hidden border-2 border-cyan-500/20 bg-black shadow-[0_0_30px_rgba(0,229,255,0.1)]">
-                      <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none" />
+                      <video ref={setVideoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none" />
                       <canvas ref={canvasRef} width={480} height={480} className="w-full h-full object-cover" />
                       
                       {/* Discrete Switch Camera Button */}
