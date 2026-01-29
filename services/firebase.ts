@@ -1,6 +1,6 @@
 
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User, setPersistence, browserLocalPersistence } from "firebase/auth";
 import { getFirestore, collection, doc, setDoc, updateDoc, onSnapshot, query, getDocs, writeBatch, increment } from "firebase/firestore";
 
 /**
@@ -22,6 +22,11 @@ export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 export const db = getFirestore(app);
 
+// Configura a persistência local (IndexedDB) para manter o usuário logado entre sessões
+setPersistence(auth, browserLocalPersistence).catch((err) => {
+  console.error("Falha ao configurar persistência:", err);
+});
+
 // Força o Google a sempre pedir para selecionar a conta, evitando loops automáticos
 googleProvider.setCustomParameters({
   prompt: 'select_account'
@@ -39,6 +44,6 @@ export {
   query,
   getDocs,
   writeBatch,
-  increment
+  increment 
 };
 export type { User };

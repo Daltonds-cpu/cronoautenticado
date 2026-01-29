@@ -4,7 +4,7 @@ import { Canvas } from '@react-three/fiber';
 import { GlobeView } from './components/Globe';
 import { SlotData, UserProfile, HistoryItem, Notification as NotificationType } from './types';
 import { GLOBE_RADIUS, MOCK_USERS } from './constants';
-import { Trophy, Camera, X, Clock, Heart, Bell, ChevronLeft, Loader2, Repeat, LogOut, Users, HelpCircle, MessageCircle, Maximize2, Zap, Target, ShieldCheck, Sparkles, Award, Wand2, RefreshCcw, Download } from 'lucide-react';
+import { Trophy, Camera, X, Clock, Heart, Bell, ChevronLeft, Loader2, Repeat, LogOut, Users, HelpCircle, MessageCircle, Maximize2, Zap, Target, ShieldCheck, Sparkles, Award, Wand2, RefreshCcw, Download, Tv, Ghost, Palette, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { analyzePostImpact } from './services/geminiService';
 import { 
@@ -31,10 +31,19 @@ const CAMERA_FILTERS = [
   { id: 'none', name: 'NORMAL', icon: <RefreshCcw size={16} /> },
   { id: 'noir', name: 'NOIR', icon: <div className="w-3 h-3 bg-zinc-500 rounded-full" /> },
   { id: 'neon', name: 'NEON', icon: <div className="w-3 h-3 bg-cyan-400 rounded-full shadow-[0_0_8px_rgba(0,229,255,1)]" /> },
+  { id: 'vhs', name: 'VHS', icon: <Tv size={14} className="text-purple-400" /> },
+  { id: 'pixel', name: 'PIXEL', icon: <div className="w-3 h-3 bg-white grid grid-cols-2"><div className="bg-black"/><div className="bg-white"/><div className="bg-white"/><div className="bg-black"/></div> },
+  { id: 'psycho', name: 'PSYCHO', icon: <Sparkles size={14} className="text-yellow-400" /> },
+  { id: 'thermal', name: 'THERMAL', icon: <div className="w-3 h-3 bg-gradient-to-r from-blue-500 via-yellow-500 to-red-500 rounded-full" /> },
   { id: 'invert', name: 'INVERT', icon: <div className="w-3 h-3 bg-white border border-black rounded-full" /> },
   { id: 'blur', name: 'DREAM', icon: <div className="w-3 h-3 bg-cyan-200/50 blur-[2px] rounded-full" /> },
-  { id: 'mirror_h', name: 'MIRROR', icon: <div className="flex gap-0.5"><div className="w-1.5 h-3 bg-white" /><div className="w-1.5 h-3 bg-white/30" /></div> },
+  { id: 'mirror_h', name: 'ESPELHO H', icon: <div className="flex gap-0.5"><div className="w-1.5 h-3 bg-white" /><div className="w-1.5 h-3 bg-white/30" /></div> },
+  { id: 'mirror_v', name: 'ESPELHO V', icon: <div className="flex flex-col gap-0.5"><div className="w-3 h-1.5 bg-white" /><div className="w-3 h-1.5 bg-white/30" /></div> },
+  { id: 'kaleido', name: 'KALEIDO', icon: <Eye size={14} /> },
   { id: 'split', name: 'SPLIT', icon: <div className="flex flex-col gap-0.5"><div className="w-3 h-1.5 bg-white" /><div className="w-3 h-1.5 bg-white" /></div> },
+  { id: 'rgb_shift', name: 'RGB', icon: <Zap size={14} className="text-red-400" /> },
+  { id: 'sketch', name: 'SKETCH', icon: <Palette size={14} /> },
+  { id: 'sepia', name: 'SEPIA', icon: <div className="w-3 h-3 bg-[#704214] rounded-full" /> },
   { id: 'glitch', name: 'GLITCH', icon: <Zap size={14} className="text-purple-400" /> },
   { id: 'poster', name: 'POSTER', icon: <div className="w-3 h-3 bg-gradient-to-tr from-red-500 via-yellow-500 to-blue-500 rounded-full" /> }
 ];
@@ -103,6 +112,7 @@ const DynamicMedia: React.FC<{ src: string; className?: string }> = ({ src, clas
 };
 
 const App: React.FC = () => {
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [userHistory, setUserHistory] = useState<HistoryItem[]>([]);
@@ -130,6 +140,7 @@ const App: React.FC = () => {
   const [introStep, setIntroStep] = useState<number>(0);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -138,21 +149,17 @@ const App: React.FC = () => {
   const userSubRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    // Register Service Worker
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch((err) => console.log("SW registration error: ", err));
     }
 
-    // Listen for PWA install prompt event
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      console.log('PWA: Ready to install');
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
-    // Initial check if already installed or in standalone mode
     if (window.matchMedia('(display-mode: standalone)').matches) {
       setDeferredPrompt(null);
     }
@@ -180,6 +187,7 @@ const App: React.FC = () => {
               likedPosts: data.likedPosts || []
             });
             setIsLoggedIn(true);
+            setIsAuthChecking(false);
           } else {
             const initialProfile = {
               ...profileData,
@@ -190,6 +198,7 @@ const App: React.FC = () => {
             setDoc(userDocRef, initialProfile).then(() => {
               setUserProfile(initialProfile);
               setIsLoggedIn(true);
+              setIsAuthChecking(false);
             });
           }
         });
@@ -199,6 +208,7 @@ const App: React.FC = () => {
       } else {
         setIsLoggedIn(false);
         setUserProfile(null);
+        setIsAuthChecking(false);
       }
     });
 
@@ -358,14 +368,14 @@ const App: React.FC = () => {
     }
   };
 
-  const startCamera = async () => {
+  const startCamera = async (mode: 'user' | 'environment' = 'user') => {
     setIsCameraLoading(true);
     try {
       if (stream) {
         stream.getTracks().forEach((t) => t.stop());
       }
       const newStream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'user', width: 480, height: 480 }, 
+        video: { facingMode: mode, width: 480, height: 480 }, 
         audio: false 
       });
       setStream(newStream);
@@ -377,6 +387,12 @@ const App: React.FC = () => {
     } finally { 
       setIsCameraLoading(false); 
     }
+  };
+
+  const handleSwitchCamera = () => {
+    const nextMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(nextMode);
+    startCamera(nextMode);
   };
 
   const stopCamera = () => {
@@ -413,28 +429,69 @@ const App: React.FC = () => {
     
     const { width, height } = canvasRef.current;
     ctx.clearRect(0, 0, width, height);
-    
+    ctx.imageSmoothingEnabled = true;
+
+    // Reset Filter
     ctx.filter = 'none';
+
+    // Apply Filter Logic
     if (activeFilter === 'noir') ctx.filter = 'grayscale(100%) contrast(1.4)';
     if (activeFilter === 'neon') ctx.filter = 'brightness(1.5) saturate(2.5) contrast(1.1) hue-rotate(180deg)';
     if (activeFilter === 'invert') ctx.filter = 'invert(100%)';
     if (activeFilter === 'blur') ctx.filter = 'blur(4px) brightness(1.2)';
     if (activeFilter === 'poster') ctx.filter = 'contrast(2) saturate(2) brightness(0.9) grayscale(20%)';
-    
-    ctx.save();
-    ctx.scale(-1, 1);
-    ctx.translate(-width, 0);
+    if (activeFilter === 'vhs') ctx.filter = 'contrast(1.2) saturate(0.5) brightness(1.1) grayscale(20%)';
+    if (activeFilter === 'psycho') ctx.filter = `hue-rotate(${Date.now() % 360}deg) saturate(3)`;
+    if (activeFilter === 'thermal') ctx.filter = 'invert(100%) hue-rotate(180deg) saturate(5)';
+    if (activeFilter === 'sepia') ctx.filter = 'sepia(100%) contrast(1.1)';
+    if (activeFilter === 'sketch') ctx.filter = 'grayscale(100%) contrast(1000%) invert(100%)';
 
-    if (activeFilter === 'mirror_h') {
+    ctx.save();
+    
+    // Selfie mode flipping (only for user camera)
+    if (facingMode === 'user') {
+      ctx.scale(-1, 1);
+      ctx.translate(-width, 0);
+    }
+
+    if (activeFilter === 'pixel') {
+      ctx.imageSmoothingEnabled = false;
+      const pixelSize = 16;
+      ctx.drawImage(videoRef.current, 0, 0, pixelSize, pixelSize, 0, 0, width, height);
+    } else if (activeFilter === 'mirror_h') {
       ctx.drawImage(videoRef.current, 0, 0, width / 2, height, 0, 0, width / 2, height);
       ctx.save();
       ctx.translate(width, 0);
       ctx.scale(-1, 1);
       ctx.drawImage(videoRef.current, 0, 0, width / 2, height, 0, 0, width / 2, height);
       ctx.restore();
+    } else if (activeFilter === 'mirror_v') {
+      ctx.drawImage(videoRef.current, 0, 0, width, height / 2, 0, 0, width, height / 2);
+      ctx.save();
+      ctx.translate(0, height);
+      ctx.scale(1, -1);
+      ctx.drawImage(videoRef.current, 0, 0, width, height / 2, 0, 0, width, height / 2);
+      ctx.restore();
+    } else if (activeFilter === 'kaleido') {
+      const halfW = width / 2;
+      const halfH = height / 2;
+      ctx.drawImage(videoRef.current, 0, 0, halfW, halfH, 0, 0, halfW, halfH);
+      ctx.save(); ctx.translate(width, 0); ctx.scale(-1, 1); ctx.drawImage(videoRef.current, 0, 0, halfW, halfH, 0, 0, halfW, halfH); ctx.restore();
+      ctx.save(); ctx.translate(0, height); ctx.scale(1, -1); ctx.drawImage(videoRef.current, 0, 0, halfW, halfH, 0, 0, halfW, halfH); ctx.restore();
+      ctx.save(); ctx.translate(width, height); ctx.scale(-1, -1); ctx.drawImage(videoRef.current, 0, 0, halfW, halfH, 0, 0, halfW, halfH); ctx.restore();
     } else if (activeFilter === 'split') {
       ctx.drawImage(videoRef.current, 0, 0, width, height / 2, 0, 0, width, height / 2);
       ctx.drawImage(videoRef.current, 0, 0, width, height / 2, 0, height / 2, width, height / 2);
+    } else if (activeFilter === 'rgb_shift') {
+      const shift = 5;
+      ctx.globalCompositeOperation = 'screen';
+      ctx.filter = 'none'; 
+      ctx.fillStyle = 'red';
+      ctx.drawImage(videoRef.current, shift, 0, width, height);
+      ctx.fillStyle = 'green';
+      ctx.drawImage(videoRef.current, 0, 0, width, height);
+      ctx.fillStyle = 'blue';
+      ctx.drawImage(videoRef.current, -shift, 0, width, height);
     } else if (activeFilter === 'glitch') {
       const offset = Math.sin(Date.now() / 50) * 10;
       ctx.drawImage(videoRef.current, offset, 0, width, height);
@@ -446,6 +503,25 @@ const App: React.FC = () => {
     }
 
     ctx.restore();
+
+    // Overlays
+    if (activeFilter === 'vhs') {
+      // Scanlines
+      ctx.fillStyle = 'rgba(18, 16, 16, 0.1)';
+      for (let i = 0; i < height; i += 4) {
+        ctx.fillRect(0, i, width, 1);
+      }
+      // Noise
+      const imageData = ctx.getImageData(0, 0, width, height);
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        if (Math.random() > 0.95) {
+          const val = Math.random() * 255;
+          data[i] = val; data[i+1] = val; data[i+2] = val;
+        }
+      }
+      ctx.putImageData(imageData, 0, 0);
+    }
     
     requestRef.current = requestAnimationFrame(processFrame);
   };
@@ -455,7 +531,7 @@ const App: React.FC = () => {
       processFrame(); 
     }
     return () => cancelAnimationFrame(requestRef.current);
-  }, [postingStep, activeFilter, stream]);
+  }, [postingStep, activeFilter, stream, facingMode]);
 
   const handleCapture = () => {
     if (!canvasRef.current) return;
@@ -508,6 +584,7 @@ const App: React.FC = () => {
       };
       await updateDoc(slotRef, updatedSlot);
       setIsPosting(false); setPostingStep('mode_select'); setCapturedMedia(null); setNewTitle(''); setSelectedSlotId(null);
+      setFacingMode('user'); // Reset to front camera for next time
       const aiComment = await aiFeedbackPromise;
       setIsAnalyzing(false);
       addNotification(`IA: "${aiComment}"`);
@@ -521,12 +598,14 @@ const App: React.FC = () => {
   const handleBackStep = () => {
     if (postingStep === 'camera') {
       stopCamera();
+      setFacingMode('user'); // Reset to front camera
       setPostingStep('mode_select');
     } else if (postingStep === 'preview') {
       setCapturedMedia(null);
-      startCamera();
+      startCamera(facingMode);
     } else {
       stopCamera();
+      setFacingMode('user'); // Reset to front camera
       setIsPosting(false);
     }
   };
@@ -546,7 +625,12 @@ const App: React.FC = () => {
     <div className="relative w-full h-screen overflow-hidden bg-[#020205] text-white font-inter">
       
       <AnimatePresence>
-        {isIntroOpen && (
+        {isAuthChecking ? (
+          <motion.div key="auth-splash" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[11000] bg-[#020205] flex flex-col items-center justify-center p-6 text-center">
+            <Loader2 className="animate-spin text-cyan-400 mb-6" size={48} />
+            <h2 className="text-xs font-orbitron font-black text-cyan-500 uppercase tracking-[0.5em] animate-pulse">Sincronizando Malha Temporal...</h2>
+          </motion.div>
+        ) : isIntroOpen ? (
           <motion.div key="intro-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[10000] bg-black/95 flex items-center justify-center p-6 backdrop-blur-xl">
             <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="w-full max-w-md bg-zinc-900 border border-cyan-500/20 rounded-[2.5rem] p-10 text-center">
               <div className="mb-8 flex justify-center">{introSteps[introStep].icon}</div>
@@ -562,7 +646,7 @@ const App: React.FC = () => {
               </button>
             </motion.div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
 
       <div className="fixed top-20 right-4 z-[5000] flex flex-col gap-2 pointer-events-none w-full max-w-[280px]">
@@ -576,7 +660,7 @@ const App: React.FC = () => {
         </AnimatePresence>
       </div>
 
-      {isLoggedIn && userProfile ? (
+      {!isAuthChecking && (isLoggedIn && userProfile ? (
         <>
           <div className="absolute inset-0 z-0">
             <Canvas camera={{ position: [0, 0, 22], fov: 40 }} dpr={[1, 2]}>
@@ -662,7 +746,7 @@ const App: React.FC = () => {
             </button>
           </div>
         </motion.div>
-      )}
+      ))}
 
       <AnimatePresence>
         {isRankingOpen && (
@@ -806,8 +890,8 @@ const App: React.FC = () => {
               <div className="flex-1 overflow-y-auto p-6 md:p-8">
                 {postingStep === 'mode_select' && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-10">
-                    <button onClick={() => { setCaptureMode('photo'); startCamera(); }} className="bg-white/5 border border-white/10 p-10 rounded-[2rem] flex flex-col items-center gap-6 hover:bg-cyan-500/10 transition-all group cursor-pointer"><Camera size={48} className="text-cyan-400 group-hover:scale-110 transition-transform" /><p className="font-orbitron font-black text-sm uppercase tracking-widest">REGISTRO FOTO</p></button>
-                    <button onClick={() => { setCaptureMode('gif'); startCamera(); }} className="bg-white/5 border border-white/10 p-10 rounded-[2rem] flex flex-col items-center gap-6 hover:bg-purple-500/10 transition-all group cursor-pointer"><Repeat size={48} className="text-purple-400 group-hover:scale-110 transition-transform" /><p className="font-orbitron font-black text-sm uppercase tracking-widest">MALHA LOOP</p></button>
+                    <button onClick={() => { setCaptureMode('photo'); startCamera('user'); }} className="bg-white/5 border border-white/10 p-10 rounded-[2rem] flex flex-col items-center gap-6 hover:bg-cyan-500/10 transition-all group cursor-pointer"><Camera size={48} className="text-cyan-400 group-hover:scale-110 transition-transform" /><p className="font-orbitron font-black text-sm uppercase tracking-widest">REGISTRO FOTO</p></button>
+                    <button onClick={() => { setCaptureMode('gif'); startCamera('user'); }} className="bg-white/5 border border-white/10 p-10 rounded-[2rem] flex flex-col items-center gap-6 hover:bg-purple-500/10 transition-all group cursor-pointer"><Repeat size={48} className="text-purple-400 group-hover:scale-110 transition-transform" /><p className="font-orbitron font-black text-sm uppercase tracking-widest">MALHA LOOP</p></button>
                   </div>
                 )}
                 {postingStep === 'camera' && (
@@ -815,6 +899,17 @@ const App: React.FC = () => {
                     <div className="relative aspect-square w-full max-w-sm rounded-[2.5rem] overflow-hidden border-2 border-cyan-500/20 bg-black shadow-[0_0_30px_rgba(0,229,255,0.1)]">
                       <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none" />
                       <canvas ref={canvasRef} width={480} height={480} className="w-full h-full object-cover" />
+                      
+                      {/* Discrete Switch Camera Button */}
+                      {!isRecording && !isCameraLoading && (
+                        <button 
+                          onClick={handleSwitchCamera} 
+                          className="absolute top-6 right-6 p-3 bg-black/40 backdrop-blur-md border border-white/10 rounded-full text-white hover:bg-black/60 transition-all z-20 shadow-xl"
+                        >
+                          <RefreshCcw size={18} />
+                        </button>
+                      )}
+
                       {isRecording && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm">
                            <Loader2 className="animate-spin text-cyan-400 mb-4" size={40} />
