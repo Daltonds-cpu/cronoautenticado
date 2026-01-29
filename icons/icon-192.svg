@@ -1,71 +1,21 @@
-<svg
-  width="192"
-  height="192"
-  viewBox="0 0 192 192"
-  xmlns="http://www.w3.org/2000/svg">
-
-  <!-- Fundo -->
-  <rect width="192" height="192" fill="#000000"/>
-
-  <!-- Halo orbital -->
-  <circle cx="96" cy="96" r="72"
-    fill="none"
-    stroke="url(#orbit)"
-    stroke-width="2"
-    opacity="0.6"/>
-
-  <!-- Plataforma hexagonal -->
-  <g transform="translate(96 110)">
-    <polygon
-      points="
-        0,-42
-        36,-21
-        36,21
-        0,42
-        -36,21
-        -36,-21"
-      fill="#0b0f1a"
-      stroke="url(#hex)"
-      stroke-width="3"/>
-
-    <!-- Slots -->
-    <polygon points="0,-24 12,-18 12,-6 0,0 -12,-6 -12,-18"
-      fill="#3b82f6"/>
-    <polygon points="18,0 30,6 30,18 18,24 6,18 6,6"
-      fill="#a855f7"/>
-    <polygon points="-18,0 -6,6 -6,18 -18,24 -30,18 -30,6"
-      fill="#6366f1"/>
-  </g>
-
-  <!-- Cronômetro central -->
-  <circle cx="96" cy="72" r="22"
-    fill="#0b0f1a"
-    stroke="url(#clock)"
-    stroke-width="3"/>
-
-  <line x1="96" y1="72" x2="96" y2="56"
-    stroke="#e879f9"
-    stroke-width="2"/>
-
-  <line x1="96" y1="72" x2="108" y2="78"
-    stroke="#60a5fa"
-    stroke-width="2"/>
-
-  <!-- Gradientes -->
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'>
   <defs>
-    <linearGradient id="hex" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#3b82f6"/>
-      <stop offset="100%" stop-color="#a855f7"/>
+    <linearGradient id='grad' x1='0%' y1='0%' x2='100%' y2='100%'>
+      <stop offset='0%' style='stop-color:#00e5ff;stop-opacity:1' />
+      <stop offset='100%' style='stop-color:#7000ff;stop-opacity:1' />
     </linearGradient>
-
-    <linearGradient id="clock" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#60a5fa"/>
-      <stop offset="100%" stop-color="#e879f9"/>
-    </linearGradient>
-
-    <linearGradient id="orbit" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#22d3ee"/>
-      <stop offset="100%" stop-color="#a855f7"/>
-    </linearGradient>
+    <filter id='glow'>
+      <feGaussianBlur stdDeviation='2' result='coloredBlur'/>
+      <feMerge>
+        <feMergeNode in='coloredBlur'/>
+        <feMergeNode in='SourceGraphic'/>
+      </feMerge>
+    </filter>
   </defs>
+  <rect width='192' height='192' fill='#020205'/>
+  <path d='M96 30 L154 64 V128 L96 162 L38 128 V64 Z' fill='none' stroke='url(#grad)' stroke-width='8' filter='url(#glow)'/>
+  <circle cx='96' cy='96' r='20' fill='none' stroke='#00e5ff' stroke-width='4' opacity='0.6'>
+    <animate attributeName="r" values="18;22;18" dur="3s" repeatCount="indefinite" />
+  </circle>
+  <path d='M96 65 V96 L118 118' stroke='white' stroke-width='6' stroke-linecap='round' fill='none' opacity='0.9'/>
 </svg>
