@@ -1,14 +1,20 @@
 
 import React, { useRef, useMemo, useState, useEffect, Suspense } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, ThreeElements } from '@react-three/fiber';
 import { Stars, ArcballControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { GLOBE_RADIUS } from '../constants';
 import { SlotData } from '../types';
 
-// The problematic manual JSX.IntrinsicElements declaration has been removed.
-// Standard React and @react-three/fiber elements are automatically typed when
-// the project is correctly configured with @types/react and @react-three/fiber.
+/**
+ * Fix: Explicitly declare Three.js elements in the JSX namespace.
+ * This ensures TypeScript recognizes <mesh>, <group>, and other R3F intrinsic elements.
+ */
+declare global {
+  namespace JSX {
+    interface IntrinsicElements extends ThreeElements {}
+  }
+}
 
 interface SlotMarkerProps {
   slot: SlotData;
